@@ -68,6 +68,11 @@ final class ShelfWindows {
         closePanelsOfClosedShelves()
     }
 
+    func remove(_ itemIDs: [Item.ID], from id: Shelf.ID) {
+        shelves.remove(itemIDs, from: id)
+        closePanelsOfClosedShelves()
+    }
+
     /// The user closed a Shelf's panel.
     func panelClosed(_ id: Shelf.ID) {
         panels[id] = nil

@@ -29,6 +29,20 @@ struct RecentShelvesTests {
         #expect(shelves.recentShelves.first?.items.map(\.bookmark) == [bookmark("b"), bookmark("c")])
     }
 
+    @Test func aShelfEmptiedByRemovingItemsMovesToRecentShelvesWithTheItemsLastOnIt() throws {
+        let shelves = Shelves()
+        let id = shelves.openShelf()
+        shelves.drop(references: [bookmark("a"), bookmark("b")], on: id)
+        let items = try #require(shelves.shelf(id)?.items)
+        shelves.remove([items[0].id], from: id)
+
+        shelves.remove([items[1].id], from: id)
+
+        #expect(shelves.openShelves.isEmpty)
+        #expect(shelves.recentShelves.map(\.id) == [id])
+        #expect(shelves.recentShelves.first?.items.map(\.bookmark) == [bookmark("b")])
+    }
+
     @Test func recentShelvesAreNewestFirst() {
         let shelves = Shelves()
         let first = shelfWithItem(on: shelves)

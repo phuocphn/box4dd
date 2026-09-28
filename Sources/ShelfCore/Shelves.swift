@@ -97,11 +97,17 @@ public final class Shelves {
         openShelves[index].items += bookmarks.map { Item(id: UUID(), bookmark: $0) }
     }
 
-    /// A drag of some Items out of a Shelf finished. Items that were dropped somewhere leave the Shelf,
-    /// and a Shelf left empty closes itself. It goes to Recent Shelves holding the Items of that last drag,
-    /// so they can be reopened and delivered again.
+    /// A drag of some Items out of a Shelf finished. Items that were dropped somewhere leave the Shelf.
     public func dragOutEnded(_ itemIDs: [Item.ID], from id: Shelf.ID, accepted: Bool) {
-        guard accepted, let index = openShelves.firstIndex(where: { $0.id == id }) else { return }
+        guard accepted else { return }
+        remove(itemIDs, from: id)
+    }
+
+    /// Some Items left a Shelf, by drag-out or by the user removing them. A Reference Item's original is
+    /// never touched. A Shelf left empty closes itself and goes to Recent Shelves holding the Items that
+    /// were last on it, so they can be reopened.
+    public func remove(_ itemIDs: [Item.ID], from id: Shelf.ID) {
+        guard let index = openShelves.firstIndex(where: { $0.id == id }) else { return }
         let lastItems = openShelves[index].items
         openShelves[index].items.removeAll { itemIDs.contains($0.id) }
         if openShelves[index].items.isEmpty {
