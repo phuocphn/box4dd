@@ -16,35 +16,13 @@ box4dd is a free, open-source app inspired by [Dropover](https://dropoverapp.com
 
 ## Features
 
-### Opening a Shelf
-- **Shake to open.** Start dragging anything, in any app, and shake the pointer left and right. A Shelf opens under the cursor, ready for your drop.
-- **Keyboard shortcut.** Press **⌃⌥Space** (you can change it) to open an empty Shelf under the cursor.
-- **Menu bar drop.** Drop anything on the menu bar icon to open a new Shelf holding it.
-- **Several at once.** Each Shake, shortcut or drop opens a new Shelf, so you can collect things for different places in separate Shelves.
-
-### What a Shelf holds
-- **Finder files and folders.** These are kept as **references** to the originals, not copies, so no disk space is used. If you rename or move an original, the Shelf follows it. If you delete one, it stays on the Shelf marked as missing.
-- **Text, links, rich text and images.** These are saved as files the app owns (`.txt`, `.webloc`, `.rtf`, `.png`). When you drag one out, a text field or address bar gets the text or link itself, and Finder gets a file.
-- **Files from other apps**, such as Mail attachments and photos from Photos. A placeholder appears straight away and becomes the real file when it arrives.
-- **Paste** with ⌘V to add what's on the clipboard.
-
-### Working with Items
-- **Stack view.** A Shelf shows a small pile of icons with a count. Click it to expand it into a list.
-- **Select** one, several (⌘/⇧-click) or all (⌘A) Items, and drag out just those.
-- **Quick Look** with Space, **remove** with ⌫ (originals are never touched), **copy** with ⌘C, and **Show in Finder**.
-- **Behaves like Finder when dragging out.** Dragging to the same disk moves the files, dragging to another disk copies them, and holding ⌥ forces a copy. Items you drop somewhere leave the Shelf, and an empty Shelf closes itself.
-
-### Stays out of your way
-- **Menu bar only.** No Dock icon and no ⌘Tab entry.
-- **Floats above other windows**, stays visible when you switch Spaces and over full-screen apps, and **never steals keyboard focus** until you click a Shelf.
-- **Recent Shelves.** The last 10 closed Shelves can be reopened from the menu bar, so closing one by accident loses nothing.
-- **Reopens after a restart.** Shelves that were open when you quit or restarted come back where they were.
-
-### Settings
-Shake sensitivity, the new-Shelf shortcut, launch at login, and **Excluded Apps**: apps where a Shake is ignored, such as design tools or games.
-
-### Permissions
-None expected. box4dd reads the pointer position and watches for drags without Accessibility or Input Monitoring access. The global shortcut uses Carbon hot keys, which also need no permission.
+- **Shake to open.** Shake the pointer while dragging in any app, and a Shelf opens under the cursor. You can also press **⌃⌥Space** or drop onto the menu bar icon.
+- **Holds anything.** Finder files are kept as references that follow their originals. Text, links, rich text, images, and files from Mail or Photos are saved as files the Shelf owns.
+- **Drag out together.** Drag out all the Items or a selection. Dragging out works the same way it does in Finder, and an empty Shelf closes itself.
+- **Quick actions.** Quick Look (Space), remove (⌫), copy (⌘C), paste (⌘V), Show in Finder.
+- **Stays out of the way.** Menu bar only. Shelves float above other windows and across Spaces, and don't take keyboard focus until you click one.
+- **Nothing lost.** Reopen any of the last 10 closed Shelves, and open Shelves come back after a restart.
+- **Configurable, no permissions needed.** Adjust shake sensitivity, the shortcut, launch at login, and Excluded Apps. No Accessibility or Input Monitoring access is required.
 
 ---
 
@@ -74,30 +52,15 @@ Move a Shelf by dragging its top strip; an empty Shelf can be moved from anywher
 
 ---
 
-## How it's built
+## Design decisions
 
-box4dd is a native Swift app. AppKit handles windows, drag-and-drop and the menu bar, and SwiftUI draws the contents of each Shelf. [ADR 0001](docs/adr/0001-native-appkit-over-web-stack.md) explains why.
+The reasons behind box4dd's design are written down as **Architecture Decision Records** in [`docs/adr/`](docs/adr/). **Read them before proposing a big change.** They record the trade-offs already made and the alternatives that were turned down.
 
-```
-Sources/
-  ShelfCore/    Shelf rules. No AppKit. Covered by the automated tests.
-                  Shelves        - Shelves, Items, Recent Shelves, restore after relaunch, Placeholders
-                  ShakeDetector  - turns pointer samples into "was that a Shake?"
-  Box4dd/       Thin AppKit/SwiftUI app: panels, drag in and out, file promises,
-                menu bar, hot key, Shake monitor, Settings
-Tests/ShelfCoreTests/   Swift Testing suites for the two seams above
-docs/
-  adr/                  Architecture decisions
-  manual-checklist.md   Hand checks for the parts tests can't reach
-CONTEXT.md              Glossary: Shelf, Item, Reference/Captured/Missing Item, Shake, Stack, ...
-```
+| ADR | Decision |
+|---|---|
+| [0001](docs/adr/0001-native-appkit-over-web-stack.md) | Native Swift with AppKit, not a web stack or SwiftUI alone. macOS 26 minimum. |
 
-**Testing approach:** everything that can be tested without a screen lives in `ShelfCore` and is tested only through two public interfaces: `Shelves` and `ShakeDetector`. The AppKit layer is kept thin and checked by hand using [`docs/manual-checklist.md`](docs/manual-checklist.md), because dragging between apps can't be reliably tested automatically.
-
-```sh
-scripts/test.sh   # runs the test suite (finds Swift Testing even without Xcode)
-swift build       # debug build
-```
+The shared vocabulary (Shelf, Item, Reference Item, Captured Item, Shake, Stack, …) is in [`CONTEXT.md`](CONTEXT.md).
 
 ---
 
@@ -112,15 +75,15 @@ Contributions are welcome, from bug reports to whole features. Some good ways to
 
 ### Workflow
 
-1. Open an issue first for anything bigger than a small fix, so we can agree on the approach.
+1. Read the [ADRs](docs/adr/) and [`CONTEXT.md`](CONTEXT.md), then open an issue for anything bigger than a small fix, so we can agree on the approach.
 2. Fork, then branch from `master`.
 3. **Use the glossary.** Name things with the terms in [`CONTEXT.md`](CONTEXT.md): a *Shelf* holds *Items*; an Item is a *Reference Item* or a *Captured Item*. Avoid words it lists under *Avoid* (e.g. "tray", "box" for a Shelf).
 4. **Write the test first** for any change to Shelf rules or Shake detection. Add a failing test in `Tests/ShelfCoreTests` that uses only the public interface, then make it pass. Keep AppKit out of `ShelfCore`.
 5. For app-layer changes, add or update the matching section of `docs/manual-checklist.md`, and say in the PR which items you checked by hand.
-6. Make sure `scripts/test.sh` passes and `swift build` shows no warnings (the code builds in Swift 6 strict concurrency mode).
+6. Make sure `scripts/test.sh` passes (it runs the tests and finds Swift Testing even without Xcode) and that `swift build` shows no warnings. The code builds in Swift 6 strict concurrency mode.
 7. Open a PR against `master` that references the issue.
 
-Record decisions that are hard to reverse as a short ADR in `docs/adr/`.
+**Architecture decisions:** if your change is hard to reverse or goes against an existing ADR, add a new ADR in [`docs/adr/`](docs/adr/) as part of the PR. Name it `NNNN-short-title.md` and write a paragraph on the context, the decision and why. Say whether it supersedes an earlier one.
 
 ---
 
@@ -133,10 +96,6 @@ Record decisions that are hard to reverse as a short ADR in `docs/adr/`.
 - The Settings window may not take keyboard focus in every case, and there's no ⌘W to close it.
 - Only side-to-side motion counts as a Shake.
 - Parts of the manual checklist haven't been run yet (Recent Shelves, Captured Items, file promises, Quick Look, Settings, launch at login).
-
-## Not planned for v1
-
-Cloud upload and sharing, Instant Actions and scripts, image resize, text extraction and ZIP, renaming Items, pinned or docked Shelves, watched folders, and Shortcuts, Alfred or Raycast integrations. If you'd like one of these, open an issue to discuss it.
 
 ---
 
