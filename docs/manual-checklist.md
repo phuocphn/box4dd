@@ -30,3 +30,24 @@ Each slice adds its own section. Run all sections before closing a slice.
 - [ ] The close button on a Shelf with Items closes it, and the original files are untouched
 - [ ] Drag Items from a Shelf onto the Trash: the drop is refused, and the Items and originals stay
 - [ ] Click a Shelf while typing in TextEdit: keystrokes still go to TextEdit
+
+## Slice 3: Recent Shelves and reopen-on-launch (#4)
+
+Saved state lives in `~/Library/Application Support/box4dd/shelves.json`. Delete it to start clean.
+
+- [ ] Menu bar icon → Recent Shelves shows "No Recent Shelves" on a clean start
+- [ ] Drop 3 Finder files on a Shelf, close it with its close button: Recent Shelves lists it as "<first file> + 2 more — now"
+- [ ] Choose that entry: the Shelf reopens where it was, with the same 3 Items, and it's gone from the Recent list
+- [ ] Drag all Items out of a Shelf to the Desktop: the Shelf closes and is first in Recent Shelves; reopening it shows those Items, now pointing at the files on the Desktop
+- [ ] Open a Shelf and close it without dropping anything: it does not appear in Recent Shelves
+- [ ] Close 11 Shelves that each hold an Item: Recent Shelves lists 10, newest first, and the first one closed is gone
+- [ ] Open two Shelves with Items, move one somewhere else, quit from the menu, relaunch: both reopen in the same positions with their Items
+- [ ] Log out or restart the Mac with Shelves open, then launch the app: they reopen where they were
+- [ ] Recent Shelves are still listed after a relaunch
+- [ ] Drop a file on a Shelf, rename it in Finder: within a few seconds the Shelf shows the new name, and dragging it out delivers the renamed file
+- [ ] Drop a file on a Shelf, move it to another folder in Finder: dragging it out still works and delivers that file
+- [ ] Drop a file on a Shelf and delete it (move to Trash, and separately empty the Trash): within a few seconds the Item shows a "?" icon and "(missing)", and stays on the Shelf
+- [ ] Put the trashed file back (Finder → Put Back): the Item is no longer missing
+- [ ] Drag a Shelf holding a Missing Item and a normal Item out to a folder: only the normal Item is delivered
+- [ ] A Recent Shelf whose original was deleted reopens with that Item marked missing
+- [ ] Put a Shelf on a second display, quit, disconnect the display, relaunch: the Shelf reopens on the remaining screen

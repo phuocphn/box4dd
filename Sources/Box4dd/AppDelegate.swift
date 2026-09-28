@@ -4,11 +4,13 @@ import Carbon.HIToolbox
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let windows = ShelfWindows()
+    private lazy var recentShelvesMenu = RecentShelvesMenu(windows: windows)
     private var statusItem: NSStatusItem?
     private var newShelfHotKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = makeStatusItem()
+        windows.restoreOpenShelves()
         newShelfHotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey)) { [windows] in
             windows.openShelf(at: NSEvent.mouseLocation)
         }
@@ -23,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         newShelf.keyEquivalentModifierMask = [.control, .option]
         newShelf.target = self
         menu.addItem(newShelf)
+        let recent = NSMenuItem(title: "Recent Shelves", action: nil, keyEquivalent: "")
+        recent.submenu = recentShelvesMenu.menu
+        menu.addItem(recent)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit box4dd", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         item.menu = menu
