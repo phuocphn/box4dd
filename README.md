@@ -66,24 +66,13 @@ The shared vocabulary (Shelf, Item, Reference Item, Captured Item, Shake, Stack,
 
 ## Contributing
 
-Contributions are welcome, from bug reports to whole features. Some good ways to help:
+Contributions are welcome. The most useful thing right now is running [`docs/manual-checklist.md`](docs/manual-checklist.md) on your Mac and [reporting](https://github.com/phuocphn/box4dd/issues) what fails.
 
-- **Run the manual checklist** ([`docs/manual-checklist.md`](docs/manual-checklist.md)) on your Mac and report what fails. This is the most useful thing right now.
-- **Try it with your apps.** Browser, Mail, Photos, design tools: tell us what drags in or out badly.
-- **Pick up a [known limitation](#known-limitations)** or an open [issue](https://github.com/phuocphn/box4dd/issues).
-- **Add screenshots or a short demo GIF** to this README.
-
-### Workflow
-
-1. Read the [ADRs](docs/adr/) and [`CONTEXT.md`](CONTEXT.md), then open an issue for anything bigger than a small fix, so we can agree on the approach.
-2. Fork, then branch from `master`.
-3. **Use the glossary.** Name things with the terms in [`CONTEXT.md`](CONTEXT.md): a *Shelf* holds *Items*; an Item is a *Reference Item* or a *Captured Item*. Avoid words it lists under *Avoid* (e.g. "tray", "box" for a Shelf).
-4. **Write the test first** for any change to Shelf rules or Shake detection. Add a failing test in `Tests/ShelfCoreTests` that uses only the public interface, then make it pass. Keep AppKit out of `ShelfCore`.
-5. For app-layer changes, add or update the matching section of `docs/manual-checklist.md`, and say in the PR which items you checked by hand.
-6. Make sure `scripts/test.sh` passes (it runs the tests and finds Swift Testing even without Xcode) and that `swift build` shows no warnings. The code builds in Swift 6 strict concurrency mode.
-7. Open a PR against `master` that references the issue.
-
-**Architecture decisions:** if your change is hard to reverse or goes against an existing ADR, add a new ADR in [`docs/adr/`](docs/adr/) as part of the PR. Name it `NNNN-short-title.md` and write a paragraph on the context, the decision and why. Say whether it supersedes an earlier one.
+1. Read the [ADRs](docs/adr/) and [`CONTEXT.md`](CONTEXT.md), and use the glossary's terms in code.
+2. For anything bigger than a small fix, open an issue first.
+3. Write the test first for changes to Shelf rules or Shake detection (`Tests/ShelfCoreTests`). For app-layer changes, update the manual checklist.
+4. `scripts/test.sh` must pass and `swift build` must show no warnings.
+5. Add an ADR for any decision that's hard to reverse, then open a PR against `master`.
 
 ---
 
