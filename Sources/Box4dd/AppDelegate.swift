@@ -7,12 +7,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var recentShelvesMenu = RecentShelvesMenu(windows: windows)
     private var statusItem: NSStatusItem?
     private var newShelfHotKey: HotKey?
+    private var shakeMonitor: ShakeMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = makeStatusItem()
         windows.restoreOpenShelves()
         newShelfHotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey)) { [windows] in
             windows.openShelf(at: NSEvent.mouseLocation)
+        }
+        shakeMonitor = ShakeMonitor { [windows] point in
+            windows.openShelf(at: point)
         }
     }
 
