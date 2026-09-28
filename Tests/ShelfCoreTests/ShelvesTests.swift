@@ -58,6 +58,29 @@ struct ShelvesTests {
         #expect(shelves.openShelves.map(\.id) == [other])
     }
 
+    @Test func removingSelectedItemsTakesOnlyThoseOffTheShelf() throws {
+        let shelves = Shelves()
+        let id = shelves.openShelf()
+        shelves.drop(references: [bookmark("a"), bookmark("b"), bookmark("c")], on: id)
+        let items = try #require(shelves.shelf(id)?.items)
+
+        shelves.remove([items[0].id, items[2].id], from: id)
+
+        #expect(shelves.shelf(id)?.items.map(\.bookmark) == [bookmark("b")])
+    }
+
+    @Test func aShelfEmptiedByRemovingItemsClosesItself() throws {
+        let shelves = Shelves()
+        let emptied = shelves.openShelf()
+        let other = shelves.openShelf()
+        shelves.drop(references: [bookmark("a"), bookmark("b")], on: emptied)
+        let items = try #require(shelves.shelf(emptied)?.items)
+
+        shelves.remove(items.map(\.id), from: emptied)
+
+        #expect(shelves.openShelves.map(\.id) == [other])
+    }
+
     @Test func closingAShelfRemovesItEvenWithItemsOnIt() {
         let shelves = Shelves()
         let closed = shelves.openShelf()

@@ -46,7 +46,14 @@ public final class Shelves {
     /// A drag of some Items out of a Shelf finished. Items that were dropped somewhere leave the Shelf,
     /// and a Shelf left empty closes itself.
     public func dragOutEnded(_ itemIDs: [Item.ID], from id: Shelf.ID, accepted: Bool) {
-        guard accepted, let index = openShelves.firstIndex(where: { $0.id == id }) else { return }
+        guard accepted else { return }
+        remove(itemIDs, from: id)
+    }
+
+    /// The user removed some Items from a Shelf. A Reference Item's original is never touched,
+    /// and a Shelf left empty closes itself.
+    public func remove(_ itemIDs: [Item.ID], from id: Shelf.ID) {
+        guard let index = openShelves.firstIndex(where: { $0.id == id }) else { return }
         openShelves[index].items.removeAll { itemIDs.contains($0.id) }
         if openShelves[index].items.isEmpty {
             openShelves.remove(at: index)
