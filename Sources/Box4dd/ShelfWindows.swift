@@ -21,10 +21,12 @@ final class ShelfWindows {
     }
 
     /// Opens a new Shelf centred on a point in screen coordinates (usually the cursor).
-    func openShelf(at point: NSPoint) {
+    @discardableResult
+    func openShelf(at point: NSPoint) -> Shelf.ID {
         let id = shelves.openShelf()
         let panel = showPanel(for: id) { self.origin(centering: $0, on: point) }
         panelMoved(id, to: panel.frame.origin)
+        return id
     }
 
     /// Reopens a Recent Shelf where it was when it closed.
