@@ -161,3 +161,50 @@ Show in Finder
 - [ ] Right-click one of several selected Items → Show in Finder: all selected originals are revealed
 - [ ] Right-click the Stack → Show in Finder: all the Shelf's originals are revealed
 - [ ] Move one original to another folder in Finder, then Show in Finder: it reveals the new location
+
+## Slice 7: Settings and dropping on the menu bar icon (#8)
+
+Settings live in UserDefaults (`defaults read com.phuocphn.box4dd`; `defaults delete com.phuocphn.box4dd` starts clean). Login items can be inspected with `sfltool dumpbtm | grep -A8 "Name: box4dd"`.
+
+Opening Settings
+- [ ] Menu bar icon → Settings… (shown with ⌘,) opens "box4dd Settings", in front and with the keys (its traffic lights are coloured), even while another app was in front
+- [ ] Settings… again while the window is open brings the same window forward (no second window)
+- [ ] Close the window, open it again: it shows the same values
+
+Shake sensitivity
+- [ ] Slide sensitivity to Small: a gentle Shake (short strokes) while dragging a Finder file opens a Shelf
+- [ ] Slide it to Wide, without relaunching: the same gentle Shake no longer opens a Shelf, a wide one does
+
+New-Shelf shortcut
+- [ ] The shortcut shows ⌃⌥Space, and the menu's New Shelf item shows ⌃⌥Space too
+- [ ] Click it, press ⌃⌥Space: it records ⌃⌥Space again, no Shelf opens while recording
+- [ ] Click it, press ⌘⇧8: the button and the New Shelf menu item show ⌘⇧8; ⌘⇧8 anywhere opens a Shelf, ⌃⌥Space no longer does
+- [ ] Click it, press a plain letter (no ⌃⌥⌘): a red "Use at least one of ⌃, ⌥ or ⌘." shows and it keeps recording; Esc cancels and the old shortcut still works
+- [ ] Click it, then close the window while recording: the old shortcut still works
+- [ ] Record a shortcut another app has already registered as a hot key: a red error says it couldn't be used and the old one is kept (and works)
+- [ ] Reset returns to ⌃⌥Space
+
+Launch at login
+- [ ] On a clean start (`defaults delete com.phuocphn.box4dd`) of the bundled app, Launch at login is on, and box4dd shows in System Settings → General → Login Items → Open at Login
+- [ ] Switch it off: box4dd is gone from (or disabled in) Login Items; log out and in: box4dd doesn't start
+- [ ] Switch it on, log out and in: box4dd starts by itself
+- [ ] Turn it off in System Settings, relaunch box4dd: it stays off (the app doesn't turn it back on)
+- [ ] If Settings shows "Allow box4dd in System Settings…", Open Login Items… opens that pane
+- [ ] Run with `swift run`, open Settings, switch it: a red message says it works only from the app bundle, nothing crashes
+
+Excluded Apps
+- [ ] The list says "No Excluded Apps" on a clean start
+- [ ] Add App… opens at /Applications; choose Preview: it's listed with its icon and name
+- [ ] With Preview in front, drag an image out of it and Shake: nothing opens; do the same in Finder: a Shelf opens
+- [ ] Select Preview, Remove: a Shake while dragging in Preview opens a Shelf again, without relaunching
+- [ ] Adding the same app twice lists it once
+
+Survives a relaunch
+- [ ] Change sensitivity, the shortcut, launch at login and Excluded Apps, quit, relaunch: all four are as you left them, and the shortcut and Excluded Apps work straight away
+
+Dropping on the menu bar icon
+- [ ] Drag 3 Finder files onto the menu bar icon: it highlights while hovering; drop: a new Shelf opens just below the icon holding "3 items", and the originals are untouched
+- [ ] Drop on the icon again: another new Shelf opens (each drop opens its own Shelf)
+- [ ] Drag Items out of a Shelf onto the icon: they move to a new Shelf, and the first Shelf closes if emptied
+- [ ] Drag selected text, a browser link, and a browser image onto the icon, one at a time: each opens a new Shelf holding a Captured Item
+- [ ] After all this, clicking the icon still opens the menu
