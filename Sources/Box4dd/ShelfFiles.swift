@@ -30,7 +30,8 @@ final class ShelfFile: ShelfStore {
     }
 }
 
-/// Resolves Reference Item bookmarks to tell the core what became of each original.
+/// Resolves Reference Item bookmarks to tell the core what became of each original, and deletes Captured
+/// Item files when the core asks.
 @MainActor
 final class BookmarkFileSystem: FileSystem {
     func original(of bookmark: Data) -> Original {
@@ -43,6 +44,10 @@ final class BookmarkFileSystem: FileSystem {
             return .moved(refreshedBookmark: refreshed)
         }
         return .present
+    }
+
+    func deleteCapturedFile(_ file: String) {
+        CapturedFiles.delete(file)
     }
 
     /// Where a bookmark's original is now, or nil if it can't be found.

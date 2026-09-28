@@ -59,6 +59,25 @@ final class ShelfPanel: NSPanel, NSWindowDelegate {
         keyAllowed = false
     }
 
+    // An empty Shelf has no Stack to expand, so a click on it takes the keys directly, ready for ⌘V.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, windows?.items(on: shelfID).isEmpty == true {
+            becomeKeyForUserClick()
+        }
+        super.sendEvent(event)
+    }
+
+    // ⌘V adds the clipboard to the Shelf, whether it shows the Stack or the list. There's no main menu in a
+    // menu-bar-only app, so it's handled here.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard isKeyWindow, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+              event.charactersIgnoringModifiers == "v" else {
+            return super.performKeyEquivalent(with: event)
+        }
+        if windows?.paste(on: shelfID) != true { NSSound.beep() }
+        return true
+    }
+
     /// Switches between the Stack and the expanded list, keeping the Shelf's top edge where it is.
     func showExpanded(_ expanded: Bool) {
         collapseButton.isHidden = !expanded
@@ -85,7 +104,7 @@ final class DropTarget {
     var isTargeted = false
 }
 
-/// The body of a Shelf's panel: takes Finder files dropped on it, and shows either the Stack, which starts
+/// The body of a Shelf's panel: takes Finder files and content dropped on it, and shows either the Stack, which starts
 /// a drag of all its Items and expands when clicked, or the expanded list of Items.
 final class ShelfItemsView: NSView, NSDraggingSource {
     private let shelfID: Shelf.ID
@@ -103,7 +122,7 @@ final class ShelfItemsView: NSView, NSDraggingSource {
         self.windows = windows
         stack = NSHostingView(rootView: ShelfContent(windows: windows, shelfID: shelfID, dropTarget: dropTarget))
         super.init(frame: .zero)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(PasteboardContent.readableTypes)
 
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -185,7 +204,7 @@ final class ShelfItemsView: NSView, NSDraggingSource {
         // Dropping a Shelf's Items back onto the same Shelf is a no-op, so treat it as a cancelled drag.
         let source = sender.draggingSource as AnyObject?
         let fromThisShelf = source != nil && (source === self || source === itemList)
-        guard !fromThisShelf, !fileURLs(in: sender).isEmpty else { return [] }
+        guard !fromThisShelf, PasteboardContent.canRead(from: sender.draggingPasteboard) else { return [] }
         setTargeted(true)
         return .copy
     }
@@ -196,18 +215,12 @@ final class ShelfItemsView: NSView, NSDraggingSource {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         setTargeted(false)
-        let urls = fileURLs(in: sender)
-        return windows?.drop(urls, on: shelfID) ?? false
+        return windows?.add(PasteboardContent.read(from: sender.draggingPasteboard), to: shelfID) ?? false
     }
 
     private func setTargeted(_ targeted: Bool) {
         dropTarget.isTargeted = targeted
         list.layer?.borderWidth = targeted ? 2 : 0
-    }
-
-    private func fileURLs(in info: NSDraggingInfo) -> [URL] {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        return info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
     }
 
     // MARK: Dragging out of the Shelf
@@ -228,16 +241,16 @@ final class ShelfItemsView: NSView, NSDraggingSource {
         // A little slack, so a slightly shaky click still expands the Stack instead of starting a drag.
         let start = mouseDownEvent.locationInWindow, now = event.locationInWindow
         guard hypot(now.x - start.x, now.y - start.y) > 3 else { return }
-        let resolved = items.compactMap { item in windows.url(for: item).map { (item.id, $0) } }
+        let resolved = items.compactMap { item in windows.dragWriter(for: item).map { (item, $0) } }
         guard !resolved.isEmpty else { return }
 
-        let draggingItems = resolved.map { _, url in
-            let draggingItem = NSDraggingItem(pasteboardWriter: url as NSURL)
+        let draggingItems = resolved.map { item, writer in
+            let draggingItem = NSDraggingItem(pasteboardWriter: writer)
             draggingItem.setDraggingFrame(NSRect(x: bounds.midX - 32, y: bounds.midY - 32, width: 64, height: 64),
-                                          contents: NSWorkspace.shared.icon(forFile: url.path))
+                                          contents: windows.icon(for: item))
             return draggingItem
         }
-        draggedItemIDs = resolved.map(\.0)
+        draggedItemIDs = resolved.map(\.0.id)
         beginDraggingSession(with: draggingItems, event: mouseDownEvent, source: self)
     }
 
@@ -257,7 +270,7 @@ final class ShelfItemsView: NSView, NSDraggingSource {
     // MARK: Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard !isExpanded, !items.isEmpty else { return nil }
+        guard !isExpanded, !originals.isEmpty else { return nil }
         let menu = NSMenu()
         let showInFinder = NSMenuItem(title: "Show in Finder", action: #selector(showItemsInFinder), keyEquivalent: "")
         showInFinder.target = self
@@ -266,9 +279,14 @@ final class ShelfItemsView: NSView, NSDraggingSource {
     }
 
     @objc private func showItemsInFinder() {
-        let urls = items.compactMap { windows?.url(for: $0) }
+        let urls = originals
         guard !urls.isEmpty else { return }
         NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
+    /// The Reference Items' originals; a Captured Item's file lives in the app's storage and isn't shown.
+    private var originals: [URL] {
+        items.filter { $0.bookmark != nil }.compactMap { windows?.url(for: $0) }
     }
 }
 
@@ -285,14 +303,15 @@ struct ShelfContent: View {
                 Image(systemName: "tray.and.arrow.down")
                     .font(.system(size: 30))
                     .foregroundStyle(.secondary)
-                Text("Drop files here")
+                Text("Drop or paste here")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
                 ZStack {
                     ForEach(Array(items.prefix(3).enumerated().reversed()), id: \.element.id) { offset, item in
-                        Image(nsImage: icon(for: item))
+                        Image(nsImage: windows.icon(for: item))
                             .resizable()
+                            .aspectRatio(contentMode: .fit)
                             .frame(width: 64, height: 64)
                             .offset(x: CGFloat(offset) * 6, y: CGFloat(offset) * -6)
                     }
@@ -311,13 +330,6 @@ struct ShelfContent: View {
                 .strokeBorder(dropTarget.isTargeted ? Color.accentColor : .clear, lineWidth: 2)
                 .padding(4)
         }
-    }
-
-    private func icon(for item: Item) -> NSImage {
-        guard let url = windows.url(for: item) else {
-            return NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: nil) ?? NSImage()
-        }
-        return NSWorkspace.shared.icon(forFile: url.path)
     }
 
     private func label(for items: [Item]) -> String {

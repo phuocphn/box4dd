@@ -51,12 +51,27 @@ final class ShelfWindows {
         return panel
     }
 
-    /// Returns false when none of the files could be kept, so the drag source sees the drop as refused.
-    func drop(_ urls: [URL], on id: Shelf.ID) -> Bool {
-        let bookmarks = urls.compactMap { try? $0.bookmarkData() }
-        guard !bookmarks.isEmpty else { return false }
-        shelves.drop(references: bookmarks, on: id)
+    /// Puts what was dropped or pasted on a Shelf: Finder files as Reference Items, and anything else saved
+    /// to the app's storage as Captured Items. Returns false when nothing could be kept, so a drag source
+    /// sees the drop as refused.
+    @discardableResult
+    func add(_ contents: [PasteboardContent], to id: Shelf.ID) -> Bool {
+        let items: [Item.Content] = contents.compactMap { content in
+            if case .file(let url) = content {
+                // A copied Captured Item pasted on a Shelf is still the app's own file, not a Finder file.
+                if let file = CapturedFiles.file(at: url) { return .captured(file: file) }
+                return (try? url.bookmarkData()).map { .reference(bookmark: $0) }
+            }
+            return CapturedFiles.save(content).map { .captured(file: $0) }
+        }
+        guard !items.isEmpty else { return false }
+        shelves.drop(items, on: id)
         return true
+    }
+
+    /// ⌘V on a Shelf.
+    func paste(on id: Shelf.ID) -> Bool {
+        add(PasteboardContent.read(from: .general), to: id)
     }
 
     func items(on id: Shelf.ID) -> [Item] {
@@ -84,14 +99,49 @@ final class ShelfWindows {
         shelves.shelfMoved(id, to: ShelfPosition(x: origin.x, y: origin.y))
     }
 
-    /// The original file for a Reference Item, or nil for a Missing Item, which is also left out of drags.
+    /// The original file for a Reference Item, or a Captured Item's own file. Nil for a Missing Item, which
+    /// is also left out of drags.
     func url(for item: Item) -> URL? {
-        item.isMissing ? nil : BookmarkFileSystem.resolve(item.bookmark)
+        switch item.content {
+        case .reference(let bookmark): item.isMissing ? nil : BookmarkFileSystem.resolve(bookmark)
+        case .captured(let file): CapturedFiles.url(for: file)
+        }
     }
 
     /// The Item's name, which a Missing Item keeps from when it was dropped.
     func name(for item: Item) -> String {
-        url(for: item)?.lastPathComponent ?? BookmarkFileSystem.savedName(in: item.bookmark) ?? "Unknown item"
+        if let file = item.capturedFile { return URL(filePath: file).lastPathComponent }
+        return url(for: item)?.lastPathComponent ?? item.bookmark.flatMap(BookmarkFileSystem.savedName(in:)) ?? "Unknown item"
+    }
+
+    /// A captured image shows itself; everything else shows its file's icon.
+    func icon(for item: Item) -> NSImage {
+        guard let url = url(for: item) else {
+            return NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: nil) ?? NSImage()
+        }
+        if let file = item.capturedFile, url.pathExtension == "png" {
+            if let cached = thumbnails[file] { return cached }
+            if let image = NSImage(contentsOf: url) {
+                thumbnails[file] = image
+                return image
+            }
+        }
+        return NSWorkspace.shared.icon(forFile: url.path)
+    }
+
+    private var thumbnails: [String: NSImage] = [:]
+
+    /// What an Item puts on a drag out of a Shelf: a Reference Item its original, a Captured Item its content
+    /// and a promise of a copy of its file. Nil when there's nothing to deliver.
+    func dragWriter(for item: Item) -> (any NSPasteboardWriting)? {
+        guard let url = url(for: item) else { return nil }
+        return item.capturedFile == nil ? url as NSURL : CapturedItemDrag(source: url)
+    }
+
+    /// What ⌘C puts on the clipboard for an Item: its file, and a Captured Item's content too.
+    func clipboardWriter(for item: Item) -> (any NSPasteboardWriting)? {
+        guard let url = url(for: item) else { return nil }
+        return item.capturedFile == nil ? url as NSURL : CapturedItemDrag.clipboardItem(for: url)
     }
 
     private func closePanelsOfClosedShelves() {

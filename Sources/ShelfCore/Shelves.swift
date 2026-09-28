@@ -8,6 +8,30 @@ public struct Shelf: Identifiable, Equatable, Sendable, Codable {
     public internal(set) var position: ShelfPosition = .init(x: 0, y: 0)
     /// When a Recent Shelf was closed; nil while the Shelf is open.
     public internal(set) var closedAt: Date?
+    /// Files of Captured Items that left this Shelf while it stayed open. A drop target may read a delivered
+    /// file late, so they are kept until the Shelf falls off Recent Shelves, and deleted with the rest.
+    var releasedFiles: [String] = []
+
+    /// Every Captured Item file this Shelf still answers for.
+    var capturedFiles: [String] {
+        items.compactMap(\.capturedFile) + releasedFiles
+    }
+}
+
+// Shelves saved before Captured Items have no released files.
+extension Shelf {
+    private enum CodingKeys: String, CodingKey {
+        case id, items, position, closedAt, releasedFiles
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        items = try container.decode([Item].self, forKey: .items)
+        position = try container.decode(ShelfPosition.self, forKey: .position)
+        closedAt = try container.decodeIfPresent(Date.self, forKey: .closedAt)
+        releasedFiles = try container.decodeIfPresent([String].self, forKey: .releasedFiles) ?? []
+    }
 }
 
 /// Where a Shelf sits on screen, in the app's screen coordinates (the core only stores it).
@@ -21,13 +45,56 @@ public struct ShelfPosition: Equatable, Sendable, Codable {
     }
 }
 
-/// One thing held on a Shelf. A Reference Item points to a file or folder the Shelf does not own.
-public struct Item: Identifiable, Equatable, Sendable, Codable {
+/// One thing held on a Shelf: a Reference Item or a Captured Item.
+public struct Item: Identifiable, Equatable, Sendable {
     public let id: UUID
-    /// Opaque bookmark to the original; only the app layer resolves it.
-    public internal(set) var bookmark: Data
+    public internal(set) var content: Content
     /// A Missing Item: its original was deleted. It stays on the Shelf, marked as missing.
     public internal(set) var isMissing = false
+
+    public enum Content: Equatable, Sendable {
+        /// A Reference Item points to a file or folder the Shelf does not own. The bookmark is opaque;
+        /// only the app layer resolves it.
+        case reference(bookmark: Data)
+        /// A Captured Item is a file the Shelf created and owns, named by its path in the app's storage.
+        case captured(file: String)
+    }
+
+    /// A Reference Item's bookmark; nil for a Captured Item.
+    public var bookmark: Data? {
+        if case .reference(let bookmark) = content { bookmark } else { nil }
+    }
+
+    /// A Captured Item's file; nil for a Reference Item.
+    public var capturedFile: String? {
+        if case .captured(let file) = content { file } else { nil }
+    }
+}
+
+// Saved flat, as `bookmark` or `capturedFile`, so Shelves saved before Captured Items still load.
+extension Item: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, bookmark, capturedFile, isMissing
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        if let file = try container.decodeIfPresent(String.self, forKey: .capturedFile) {
+            content = .captured(file: file)
+        } else {
+            content = .reference(bookmark: try container.decode(Data.self, forKey: .bookmark))
+        }
+        isMissing = try container.decodeIfPresent(Bool.self, forKey: .isMissing) ?? false
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(bookmark, forKey: .bookmark)
+        try container.encodeIfPresent(capturedFile, forKey: .capturedFile)
+        try container.encode(isMissing, forKey: .isMissing)
+    }
 }
 
 /// The open Shelves and the rules for what happens to them as the user drags things in and out.
@@ -93,8 +160,14 @@ public final class Shelves {
 
     /// Finder files or folders were dropped on a Shelf; each becomes a Reference Item.
     public func drop(references bookmarks: [Data], on id: Shelf.ID) {
+        drop(bookmarks.map { .reference(bookmark: $0) }, on: id)
+    }
+
+    /// Things were dropped or pasted on a Shelf: Finder files as Reference Items, and content the app
+    /// has saved to its storage as Captured Items, in the order given.
+    public func drop(_ contents: [Item.Content], on id: Shelf.ID) {
         guard let index = openShelves.firstIndex(where: { $0.id == id }) else { return }
-        openShelves[index].items += bookmarks.map { Item(id: UUID(), bookmark: $0) }
+        openShelves[index].items += contents.map { Item(id: UUID(), content: $0) }
     }
 
     /// A drag of some Items out of a Shelf finished. Items that were dropped somewhere leave the Shelf.
@@ -105,7 +178,8 @@ public final class Shelves {
 
     /// Some Items left a Shelf, by drag-out or by the user removing them. A Reference Item's original is
     /// never touched. A Shelf left empty closes itself and goes to Recent Shelves holding the Items that
-    /// were last on it, so they can be reopened.
+    /// were last on it, so they can be reopened. A Captured Item's file is kept until its Shelf falls off
+    /// Recent Shelves.
     public func remove(_ itemIDs: [Item.ID], from id: Shelf.ID) {
         guard let index = openShelves.firstIndex(where: { $0.id == id }) else { return }
         let lastItems = openShelves[index].items
@@ -114,6 +188,8 @@ public final class Shelves {
             var emptied = openShelves.remove(at: index)
             emptied.items = lastItems
             moveToRecent(emptied)
+        } else {
+            openShelves[index].releasedFiles += lastItems.filter { itemIDs.contains($0.id) }.compactMap(\.capturedFile)
         }
     }
 
@@ -125,11 +201,12 @@ public final class Shelves {
             shelves.map { shelf in
                 var shelf = shelf
                 for index in shelf.items.indices {
-                    switch fileSystem.original(of: shelf.items[index].bookmark) {
+                    guard let bookmark = shelf.items[index].bookmark else { continue }
+                    switch fileSystem.original(of: bookmark) {
                     case .present:
                         shelf.items[index].isMissing = false
                     case .moved(let refreshed):
-                        shelf.items[index].bookmark = refreshed
+                        shelf.items[index].content = .reference(bookmark: refreshed)
                         shelf.items[index].isMissing = false
                     case .deleted:
                         shelf.items[index].isMissing = true
@@ -150,7 +227,20 @@ public final class Shelves {
         guard !shelf.items.isEmpty else { return }
         var shelf = shelf
         shelf.closedAt = now()
-        recentShelves = Array(([shelf] + recentShelves).prefix(Self.recentLimit))
+        let all = [shelf] + recentShelves
+        recentShelves = Array(all.prefix(Self.recentLimit))
+        for evicted in all.dropFirst(Self.recentLimit) {
+            discardCapturedFiles(of: evicted)
+        }
+    }
+
+    /// A Shelf is gone for good, so the files of its Captured Items are no longer needed, unless a Captured
+    /// Item was dragged onto another Shelf that still holds its file. Reference Items are never deleted.
+    private func discardCapturedFiles(of shelf: Shelf) {
+        let stillHeld = Set((openShelves + recentShelves).flatMap(\.capturedFiles))
+        for file in shelf.capturedFiles where !stillHeld.contains(file) {
+            fileSystem?.deleteCapturedFile(file)
+        }
     }
 
     private static let recentLimit = 10
