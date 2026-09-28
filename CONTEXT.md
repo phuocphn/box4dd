@@ -36,6 +36,10 @@ _Avoid_: Link, alias, shortcut
 An Item whose content the Shelf created and owns, because what was dropped was not an existing file (text, link, rich text, image, or a file promised by another app).
 _Avoid_: Snippet, clipping, temp file
 
+**Placeholder**:
+An Item standing in for a file another app has promised but not yet delivered; it shows at once but can't be dragged out, becomes a Captured Item when the file arrives, and leaves the Shelf if it never does.
+_Avoid_: Pending item, stub
+
 **Missing Item**:
 A Reference Item whose original has been deleted; it stays on the Shelf, marked as missing.
 _Avoid_: Broken item, dead link

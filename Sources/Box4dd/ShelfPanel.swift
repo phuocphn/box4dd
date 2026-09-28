@@ -1,0 +1,414 @@
+import AppKit
+import ShelfCore
+import SwiftUI
+
+/// The floating window for one Shelf: above normal windows, on every Space and over full-screen apps,
+/// and never activating the app, so the app the user is dragging from keeps focus.
+final class ShelfPanel: NSPanel, NSWindowDelegate {
+    private let shelfID: Shelf.ID
+    private weak var windows: ShelfWindows?
+    private let collapseButton = NSTitlebarAccessoryViewController()
+    private var keyAllowed = false
+
+    private static let stackSize = NSSize(width: 150, height: 160)
+    private static let listSize = NSSize(width: 240, height: 300)
+
+    init(shelfID: Shelf.ID, windows: ShelfWindows) {
+        self.shelfID = shelfID
+        self.windows = windows
+        super.init(
+            contentRect: NSRect(origin: .zero, size: Self.stackSize),
+            styleMask: [.titled, .closable, .fullSizeContentView, .nonactivatingPanel, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        isReleasedWhenClosed = false
+        // Off: with movable-by-background on, the window server drags the window itself from any area its
+        // views don't claim, SwiftUI's included, before a press can start a drag of the Items. ShelfItemsView
+        // moves the Shelf instead, from its top strip.
+        isMovableByWindowBackground = false
+        hidesOnDeactivate = false
+        becomesKeyOnlyIfNeeded = true
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        delegate = self
+        let itemsView = ShelfItemsView(shelfID: shelfID, windows: windows)
+        contentView = itemsView
+
+        let button = NSButton(image: NSImage(systemSymbolName: "square.stack", accessibilityDescription: "Collapse to Stack") ?? NSImage(),
+                              target: itemsView, action: #selector(ShelfItemsView.collapse))
+        button.isBordered = false
+        button.frame = NSRect(x: 0, y: 0, width: 28, height: 28)
+        collapseButton.view = button
+        collapseButton.layoutAttribute = .trailing
+        collapseButton.isHidden = true
+        addTitlebarAccessoryViewController(collapseButton)
+    }
+
+    // Key only once the user clicks the Shelf to work with its Items, never when it opens or while a drag
+    // hovers over it, so keystrokes normally stay with the app in front. The panel is non-activating, so even
+    // when key the app doesn't come forward, and it gives the keys back as soon as the user clicks elsewhere.
+    override var canBecomeKey: Bool { keyAllowed }
+
+    func becomeKeyForUserClick() {
+        keyAllowed = true
+        makeKey()
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        keyAllowed = false
+    }
+
+    // An empty Shelf has no Stack to expand, so a click on it takes the keys directly, ready for ⌘V.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, windows?.items(on: shelfID).isEmpty == true {
+            becomeKeyForUserClick()
+        }
+        super.sendEvent(event)
+    }
+
+    // ⌘V adds the clipboard to the Shelf, whether it shows the Stack or the list. There's no main menu in a
+    // menu-bar-only app, so it's handled here.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard isKeyWindow, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+              event.charactersIgnoringModifiers == "v" else {
+            return super.performKeyEquivalent(with: event)
+        }
+        if windows?.paste(on: shelfID) != true { NSSound.beep() }
+        return true
+    }
+
+    /// Switches between the Stack and the expanded list, keeping the Shelf's top edge where it is.
+    func showExpanded(_ expanded: Bool) {
+        collapseButton.isHidden = !expanded
+        let size = expanded ? Self.listSize : Self.stackSize
+        var frame = frame
+        frame.origin.y = frame.maxY - size.height
+        frame.size = size
+        setFrame(frame, display: true, animate: true)
+    }
+
+    /// Shows a short message on the Shelf for a few seconds, such as a promised file that never came.
+    func showNotice(_ text: String) {
+        (contentView as? ShelfItemsView)?.showNotice(text)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        windows?.panelClosed(shelfID)
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        windows?.panelMoved(shelfID, to: frame.origin)
+    }
+}
+
+/// Watches whether a drag is hovering over a Shelf, so the view can highlight it.
+@Observable
+@MainActor
+final class DropTarget {
+    var isTargeted = false
+}
+
+/// A short message shown at the bottom of a Shelf, over both the Stack and the list.
+@Observable
+@MainActor
+final class ShelfNotice {
+    var text: String?
+}
+
+struct NoticeView: View {
+    let notice: ShelfNotice
+
+    var body: some View {
+        VStack {
+            Spacer()
+            if let text = notice.text {
+                Text(text)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                    .padding(6)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.2), value: notice.text)
+    }
+}
+
+/// The body of a Shelf's panel: takes Finder files and content dropped on it, and shows either the Stack, which starts
+/// a drag of all its Items and expands when clicked, or the expanded list of Items.
+final class ShelfItemsView: NSView, NSDraggingSource {
+    private let shelfID: Shelf.ID
+    private weak var windows: ShelfWindows?
+    private let dropTarget = DropTarget()
+    private let notice = ShelfNotice()
+    private var noticeShown = 0
+    private let stack: NSView
+    private let list = NSScrollView()
+    private var itemList: ItemList?
+    private var isExpanded = false
+    private var mouseDownEvent: NSEvent?
+    private var draggedItemIDs: [Item.ID] = []
+
+    init(shelfID: Shelf.ID, windows: ShelfWindows) {
+        self.shelfID = shelfID
+        self.windows = windows
+        stack = NSHostingView(rootView: ShelfContent(windows: windows, shelfID: shelfID, dropTarget: dropTarget))
+        super.init(frame: .zero)
+        registerForDraggedTypes(PasteboardContent.readableTypes)
+
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        list.translatesAutoresizingMaskIntoConstraints = false
+        list.drawsBackground = false
+        list.hasVerticalScroller = true
+        list.autohidesScrollers = true
+        list.wantsLayer = true
+        list.layer?.cornerRadius = 6
+        list.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        list.isHidden = true
+        addSubview(list)
+        let noticeView = PassthroughHostingView(rootView: NoticeView(notice: notice))
+        noticeView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(noticeView)
+        NSLayoutConstraint.activate([
+            noticeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            noticeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            noticeView.topAnchor.constraint(equalTo: topAnchor),
+            noticeView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            list.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            list.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            list.topAnchor.constraint(equalTo: topAnchor, constant: Self.titleStripHeight),
+            list.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func showNotice(_ text: String) {
+        noticeShown += 1
+        let shown = noticeShown
+        notice.text = text
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard let self, self.noticeShown == shown else { return }
+            self.notice.text = nil
+        }
+    }
+
+    // MARK: Stack and expanded list
+
+    /// The user clicked the Stack: show single Items, and take the keys so they can act on a selection.
+    private func expand() {
+        guard !isExpanded, let windows, !items.isEmpty else { return }
+        let itemList = ItemList(shelfID: shelfID, windows: windows) { [weak self] in self?.collapse() }
+        self.itemList = itemList
+        list.documentView = itemList
+        isExpanded = true
+        stack.isHidden = true
+        list.isHidden = false
+        let panel = window as? ShelfPanel
+        panel?.showExpanded(true)
+        panel?.becomeKeyForUserClick()
+        panel?.makeFirstResponder(itemList)
+    }
+
+    @objc func collapse() {
+        guard isExpanded else { return }
+        if window?.firstResponder === itemList { window?.makeFirstResponder(nil) }
+        list.documentView = nil
+        itemList = nil
+        isExpanded = false
+        list.isHidden = true
+        stack.isHidden = false
+        (window as? ShelfPanel)?.showExpanded(false)
+    }
+
+    // On the Stack, clicks land here, not in the SwiftUI content, so a drag of the Items can start anywhere
+    // on the Shelf; the expanded list handles its own clicks. Clicks in the top strip land here too, to move
+    // the Shelf; the close and collapse buttons sit above this view and still get their own clicks.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard frame.contains(point) else { return nil }
+        if isInTitleStrip(convert(point, from: superview)) { return self }
+        return isExpanded ? super.hitTest(point) : self
+    }
+
+    private func isInTitleStrip(_ point: NSPoint) -> Bool {
+        point.y > bounds.height - Self.titleStripHeight
+    }
+
+    private static let titleStripHeight: CGFloat = 28
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private var items: [Item] {
+        windows?.items(on: shelfID) ?? []
+    }
+
+    // MARK: Dropping onto the Shelf
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        // Dropping a Shelf's Items back onto the same Shelf is a no-op, so treat it as a cancelled drag.
+        let source = sender.draggingSource as AnyObject?
+        let fromThisShelf = source != nil && (source === self || source === itemList)
+        guard !fromThisShelf, PasteboardContent.canRead(from: sender.draggingPasteboard) else { return [] }
+        setTargeted(true)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        setTargeted(false)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        setTargeted(false)
+        return windows?.add(PasteboardContent.read(from: sender.draggingPasteboard), to: shelfID) ?? false
+    }
+
+    private func setTargeted(_ targeted: Bool) {
+        dropTarget.isTargeted = targeted
+        list.layer?.borderWidth = targeted ? 2 : 0
+    }
+
+    // MARK: Dragging out of the Shelf
+
+    override func mouseDown(with event: NSEvent) {
+        // The top strip moves the Shelf, and so does anywhere on an empty Shelf, which has no Items to drag.
+        if isInTitleStrip(convert(event.locationInWindow, from: nil)) || items.isEmpty {
+            window?.performDrag(with: event)
+            return
+        }
+        mouseDownEvent = event
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        // A click, not a drag: expand the Stack.
+        guard mouseDownEvent != nil else { return }
+        mouseDownEvent = nil
+        expand()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let mouseDownEvent, let windows, draggedItemIDs.isEmpty else { return }
+        // A little slack, so a slightly shaky click still expands the Stack instead of starting a drag.
+        let start = mouseDownEvent.locationInWindow, now = event.locationInWindow
+        guard hypot(now.x - start.x, now.y - start.y) > 3 else { return }
+        let resolved = items.compactMap { item in windows.dragWriter(for: item).map { (item, $0) } }
+        guard !resolved.isEmpty else { return }
+
+        let draggingItems = resolved.map { item, writer in
+            let draggingItem = NSDraggingItem(pasteboardWriter: writer)
+            draggingItem.setDraggingFrame(NSRect(x: bounds.midX - 32, y: bounds.midY - 32, width: 64, height: 64),
+                                          contents: windows.icon(for: item))
+            return draggingItem
+        }
+        draggedItemIDs = resolved.map(\.0.id)
+        beginDraggingSession(with: draggingItems, event: mouseDownEvent, source: self)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        // Let the destination decide, as Finder does: move on the same volume, copy across volumes, ⌥ to copy.
+        // No .delete or .link: a drop on the Trash or an alias gesture must not count as delivering the Items.
+        [.copy, .move, .generic]
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        let ids = draggedItemIDs
+        draggedItemIDs = []
+        mouseDownEvent = nil
+        windows?.dragOutEnded(ids, from: shelfID, accepted: operation != [])
+    }
+
+    // MARK: Context menu
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard !isExpanded, !originals.isEmpty else { return nil }
+        let menu = NSMenu()
+        let showInFinder = NSMenuItem(title: "Show in Finder", action: #selector(showItemsInFinder), keyEquivalent: "")
+        showInFinder.target = self
+        menu.addItem(showInFinder)
+        return menu
+    }
+
+    @objc private func showItemsInFinder() {
+        let urls = originals
+        guard !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
+    /// The Reference Items' originals; a Captured Item's file lives in the app's storage and isn't shown.
+    private var originals: [URL] {
+        items.filter { $0.bookmark != nil }.compactMap { windows?.url(for: $0) }
+    }
+}
+
+/// What a Shelf shows: a hint when empty, otherwise a small pile of its Items' icons and a count.
+struct ShelfContent: View {
+    let windows: ShelfWindows
+    let shelfID: Shelf.ID
+    let dropTarget: DropTarget
+
+    var body: some View {
+        let items = windows.items(on: shelfID)
+        VStack(spacing: 8) {
+            if items.isEmpty {
+                Image(systemName: "tray.and.arrow.down")
+                    .font(.system(size: 30))
+                    .foregroundStyle(.secondary)
+                Text("Drop or paste here")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ZStack {
+                    ForEach(Array(items.prefix(3).enumerated().reversed()), id: \.element.id) { offset, item in
+                        Group {
+                            if item.isPlaceholder {
+                                ProgressView()
+                            } else {
+                                Image(nsImage: windows.icon(for: item))
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                            }
+                        }
+                        .frame(width: 64, height: 64)
+                        .offset(x: CGFloat(offset) * 6, y: CGFloat(offset) * -6)
+                    }
+                }
+                Text(label(for: items))
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .padding(.top, 16)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(dropTarget.isTargeted ? Color.accentColor : .clear, lineWidth: 2)
+                .padding(4)
+        }
+    }
+
+    private func label(for items: [Item]) -> String {
+        let missing = items.count { $0.isMissing }
+        let arriving = items.count { $0.isPlaceholder }
+        if items.count == 1 {
+            return windows.name(for: items[0]) + (missing > 0 ? " (missing)" : "") + (arriving > 0 ? " (arriving)" : "")
+        }
+        return "\(items.count) items" + (missing > 0 ? ", \(missing) missing" : "") + (arriving > 0 ? ", \(arriving) arriving" : "")
+    }
+}
