@@ -73,7 +73,8 @@ final class ItemList: NSTableView, NSTableViewDataSource, NSTableViewDelegate, @
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let item = rows[row]
         return PassthroughHostingView(rootView: ItemRow(icon: windows?.icon(for: item) ?? NSImage(),
-                                                        name: windows?.name(for: item) ?? "Unknown item"))
+                                                        name: windows?.name(for: item) ?? "Unknown item",
+                                                        isArriving: item.isPlaceholder))
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
@@ -219,20 +220,28 @@ final class ItemList: NSTableView, NSTableViewDataSource, NSTableViewDelegate, @
     }
 }
 
-/// One Item in the expanded Shelf.
+/// One Item in the expanded Shelf. A Placeholder shows a spinner until its file arrives.
 struct ItemRow: View {
     let icon: NSImage
     let name: String
+    let isArriving: Bool
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(nsImage: icon)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 20, height: 20)
+            Group {
+                if isArriving {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                }
+            }
+            .frame(width: 20, height: 20)
             Text(name)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .foregroundStyle(isArriving ? .secondary : .primary)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 4)

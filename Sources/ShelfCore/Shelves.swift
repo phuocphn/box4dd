@@ -58,6 +58,15 @@ public struct Item: Identifiable, Equatable, Sendable {
         case reference(bookmark: Data)
         /// A Captured Item is a file the Shelf created and owns, named by its path in the app's storage.
         case captured(file: String)
+        /// A Placeholder stands in for a file another app promised but hasn't delivered yet, named as the
+        /// promise names it, if it does. It can't be dragged out; it becomes a Captured Item when the file
+        /// arrives, and leaves the Shelf if it never does.
+        case placeholder(name: String?)
+    }
+
+    /// Whether this Item is still waiting for its promised file.
+    public var isPlaceholder: Bool {
+        if case .placeholder = content { true } else { false }
     }
 
     /// A Reference Item's bookmark; nil for a Captured Item.
@@ -71,10 +80,16 @@ public struct Item: Identifiable, Equatable, Sendable {
     }
 }
 
-// Saved flat, as `bookmark` or `capturedFile`, so Shelves saved before Captured Items still load.
+// Saved flat, as `bookmark`, `capturedFile` or `placeholder`, so Shelves saved before Captured Items still load.
+// A Placeholder is saved only so the Shelves file stays readable; it's dropped on load.
 extension Item: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, bookmark, capturedFile, isMissing
+        case id, bookmark, capturedFile, placeholder, isMissing
+    }
+
+    /// What's saved for a Placeholder.
+    private struct SavedPlaceholder: Codable {
+        var name: String?
     }
 
     public init(from decoder: any Decoder) throws {
@@ -82,6 +97,8 @@ extension Item: Codable {
         id = try container.decode(UUID.self, forKey: .id)
         if let file = try container.decodeIfPresent(String.self, forKey: .capturedFile) {
             content = .captured(file: file)
+        } else if let placeholder = try container.decodeIfPresent(SavedPlaceholder.self, forKey: .placeholder) {
+            content = .placeholder(name: placeholder.name)
         } else {
             content = .reference(bookmark: try container.decode(Data.self, forKey: .bookmark))
         }
@@ -93,6 +110,9 @@ extension Item: Codable {
         try container.encode(id, forKey: .id)
         try container.encodeIfPresent(bookmark, forKey: .bookmark)
         try container.encodeIfPresent(capturedFile, forKey: .capturedFile)
+        if case .placeholder(let name) = content {
+            try container.encode(SavedPlaceholder(name: name), forKey: .placeholder)
+        }
         try container.encode(isMissing, forKey: .isMissing)
     }
 }
@@ -113,7 +133,9 @@ public final class Shelves {
     private let fileSystem: (any FileSystem)?
     private let now: () -> Date
 
-    /// Picks up the Shelves saved before the last quit, so open Shelves come back where they were.
+    /// Picks up the Shelves saved before the last quit, so open Shelves come back where they were. Promises
+    /// die with the app that received them, so Placeholders don't come back, and a Shelf that held only
+    /// Placeholders is gone.
     public init(store: (any ShelfStore)? = nil, fileSystem: (any FileSystem)? = nil, now: @escaping () -> Date = Date.init) {
         self.store = store
         self.fileSystem = fileSystem
@@ -121,6 +143,10 @@ public final class Shelves {
         if let saved = store?.load() {
             openShelves = saved.openShelves
             recentShelves = saved.recentShelves
+        }
+        let placeholders = openShelves.flatMap(\.items).filter(\.isPlaceholder).map(\.id)
+        for id in placeholders {
+            promisedFileFailed(id)
         }
     }
 
@@ -164,21 +190,57 @@ public final class Shelves {
     }
 
     /// Things were dropped or pasted on a Shelf: Finder files as Reference Items, and content the app
-    /// has saved to its storage as Captured Items, in the order given.
-    public func drop(_ contents: [Item.Content], on id: Shelf.ID) {
-        guard let index = openShelves.firstIndex(where: { $0.id == id }) else { return }
-        openShelves[index].items += contents.map { Item(id: UUID(), content: $0) }
+    /// has saved to its storage as Captured Items, and promised files as Placeholders, in the order given.
+    /// Returns the new Items' IDs in that order, so the app can tell the core when a promised file arrives.
+    @discardableResult
+    public func drop(_ contents: [Item.Content], on id: Shelf.ID) -> [Item.ID] {
+        guard let index = openShelves.firstIndex(where: { $0.id == id }) else { return [] }
+        let items = contents.map { Item(id: UUID(), content: $0) }
+        openShelves[index].items += items
+        return items.map(\.id)
+    }
+
+    /// The file another app promised for a Placeholder arrived in the app's storage: the Placeholder
+    /// becomes a Captured Item holding it, in the same place on its Shelf. A file that arrives for a
+    /// Placeholder no longer on an open Shelf has nowhere to go, so it's deleted.
+    public func promisedFileArrived(_ itemID: Item.ID, file: String) {
+        guard let (shelf, item) = placeholder(itemID) else {
+            fileSystem?.deleteCapturedFile(file)
+            return
+        }
+        openShelves[shelf].items[item].content = .captured(file: file)
+    }
+
+    /// The file another app promised for a Placeholder never came: the Placeholder leaves its Shelf. A Shelf
+    /// left empty closes itself, but there's nothing to reopen, so it doesn't go to Recent Shelves.
+    public func promisedFileFailed(_ itemID: Item.ID) {
+        guard let (shelf, item) = placeholder(itemID) else { return }
+        openShelves[shelf].items.remove(at: item)
+        if openShelves[shelf].items.isEmpty {
+            moveToRecent(openShelves.remove(at: shelf))
+        }
+    }
+
+    private func placeholder(_ itemID: Item.ID) -> (shelf: Int, item: Int)? {
+        for (shelf, open) in openShelves.enumerated() {
+            if let item = open.items.firstIndex(where: { $0.id == itemID && $0.isPlaceholder }) {
+                return (shelf, item)
+            }
+        }
+        return nil
     }
 
     /// A drag of some Items out of a Shelf finished. Items that were dropped somewhere leave the Shelf.
+    /// A Placeholder has nothing to deliver yet, so it's never part of a drag-out.
     public func dragOutEnded(_ itemIDs: [Item.ID], from id: Shelf.ID, accepted: Bool) {
-        guard accepted else { return }
-        remove(itemIDs, from: id)
+        guard accepted, let shelf = shelf(id) else { return }
+        let placeholders = Set(shelf.items.filter(\.isPlaceholder).map(\.id))
+        remove(itemIDs.filter { !placeholders.contains($0) }, from: id)
     }
 
     /// Some Items left a Shelf, by drag-out or by the user removing them. A Reference Item's original is
-    /// never touched. A Shelf left empty closes itself and goes to Recent Shelves holding the Items that
-    /// were last on it, so they can be reopened. A Captured Item's file is kept until its Shelf falls off
+    /// never touched, and removing a Placeholder gives up on its promised file. A Shelf left empty closes
+    /// itself and goes to Recent Shelves holding the Items that were last on it, so they can be reopened. A Captured Item's file is kept until its Shelf falls off
     /// Recent Shelves.
     public func remove(_ itemIDs: [Item.ID], from id: Shelf.ID) {
         guard let index = openShelves.firstIndex(where: { $0.id == id }) else { return }
@@ -222,10 +284,16 @@ public final class Shelves {
         if checkedRecent != recentShelves { recentShelves = checkedRecent }
     }
 
-    /// Only the last 10 are kept. A Shelf with no Items has nothing to reopen, so it isn't kept.
+    /// Only the last 10 are kept. Placeholders are dropped: a file promised for a closed Shelf is deleted
+    /// when it arrives. A Shelf with no other Items has nothing to reopen, so it isn't kept, and it's gone
+    /// for good at once.
     private func moveToRecent(_ shelf: Shelf) {
-        guard !shelf.items.isEmpty else { return }
         var shelf = shelf
+        shelf.items.removeAll(where: \.isPlaceholder)
+        guard !shelf.items.isEmpty else {
+            discardCapturedFiles(of: shelf)
+            return
+        }
         shelf.closedAt = now()
         let all = [shelf] + recentShelves
         recentShelves = Array(all.prefix(Self.recentLimit))

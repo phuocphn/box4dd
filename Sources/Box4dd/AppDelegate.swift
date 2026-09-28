@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let newShelfMenuItem = NSMenuItem(title: "New Shelf", action: #selector(newShelf), keyEquivalent: "")
     private var shakeMonitor: ShakeMonitor?
 
-    // The menu bar icon accepts whatever a Shelf accepts: Finder files, text, links, rich text and images.
+    // The menu bar icon accepts whatever a Shelf accepts: Finder files, promised files, text, links, rich text and images.
     private static let menuBarDropTypes = PasteboardContent.readableTypes
 
     func applicationDidFinishLaunching(_ notification: Notification) {

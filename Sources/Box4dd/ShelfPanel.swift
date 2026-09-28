@@ -88,6 +88,11 @@ final class ShelfPanel: NSPanel, NSWindowDelegate {
         setFrame(frame, display: true, animate: true)
     }
 
+    /// Shows a short message on the Shelf for a few seconds, such as a promised file that never came.
+    func showNotice(_ text: String) {
+        (contentView as? ShelfItemsView)?.showNotice(text)
+    }
+
     func windowWillClose(_ notification: Notification) {
         windows?.panelClosed(shelfID)
     }
@@ -104,12 +109,45 @@ final class DropTarget {
     var isTargeted = false
 }
 
+/// A short message shown at the bottom of a Shelf, over both the Stack and the list.
+@Observable
+@MainActor
+final class ShelfNotice {
+    var text: String?
+}
+
+struct NoticeView: View {
+    let notice: ShelfNotice
+
+    var body: some View {
+        VStack {
+            Spacer()
+            if let text = notice.text {
+                Text(text)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                    .padding(6)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.2), value: notice.text)
+    }
+}
+
 /// The body of a Shelf's panel: takes Finder files and content dropped on it, and shows either the Stack, which starts
 /// a drag of all its Items and expands when clicked, or the expanded list of Items.
 final class ShelfItemsView: NSView, NSDraggingSource {
     private let shelfID: Shelf.ID
     private weak var windows: ShelfWindows?
     private let dropTarget = DropTarget()
+    private let notice = ShelfNotice()
+    private var noticeShown = 0
     private let stack: NSView
     private let list = NSScrollView()
     private var itemList: ItemList?
@@ -135,7 +173,14 @@ final class ShelfItemsView: NSView, NSDraggingSource {
         list.layer?.borderColor = NSColor.controlAccentColor.cgColor
         list.isHidden = true
         addSubview(list)
+        let noticeView = PassthroughHostingView(rootView: NoticeView(notice: notice))
+        noticeView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(noticeView)
         NSLayoutConstraint.activate([
+            noticeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            noticeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            noticeView.topAnchor.constraint(equalTo: topAnchor),
+            noticeView.bottomAnchor.constraint(equalTo: bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
@@ -149,6 +194,17 @@ final class ShelfItemsView: NSView, NSDraggingSource {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func showNotice(_ text: String) {
+        noticeShown += 1
+        let shown = noticeShown
+        notice.text = text
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard let self, self.noticeShown == shown else { return }
+            self.notice.text = nil
+        }
+    }
 
     // MARK: Stack and expanded list
 
@@ -309,11 +365,17 @@ struct ShelfContent: View {
             } else {
                 ZStack {
                     ForEach(Array(items.prefix(3).enumerated().reversed()), id: \.element.id) { offset, item in
-                        Image(nsImage: windows.icon(for: item))
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 64, height: 64)
-                            .offset(x: CGFloat(offset) * 6, y: CGFloat(offset) * -6)
+                        Group {
+                            if item.isPlaceholder {
+                                ProgressView()
+                            } else {
+                                Image(nsImage: windows.icon(for: item))
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                            }
+                        }
+                        .frame(width: 64, height: 64)
+                        .offset(x: CGFloat(offset) * 6, y: CGFloat(offset) * -6)
                     }
                 }
                 Text(label(for: items))
@@ -334,9 +396,10 @@ struct ShelfContent: View {
 
     private func label(for items: [Item]) -> String {
         let missing = items.count { $0.isMissing }
+        let arriving = items.count { $0.isPlaceholder }
         if items.count == 1 {
-            return windows.name(for: items[0]) + (missing > 0 ? " (missing)" : "")
+            return windows.name(for: items[0]) + (missing > 0 ? " (missing)" : "") + (arriving > 0 ? " (arriving)" : "")
         }
-        return "\(items.count) items" + (missing > 0 ? ", \(missing) missing" : "")
+        return "\(items.count) items" + (missing > 0 ? ", \(missing) missing" : "") + (arriving > 0 ? ", \(arriving) arriving" : "")
     }
 }

@@ -20,3 +20,12 @@ final class MemoryStore: ShelfStore {
     func load() -> SavedShelves? { saved }
     func save(_ shelves: SavedShelves) { saved = shelves }
 }
+
+/// Keeps what the Shelves save as JSON, as the app's file does, so what can't be encoded or read back shows up.
+@MainActor
+final class JSONStore: ShelfStore {
+    private var saved: Data?
+
+    func load() -> SavedShelves? { saved.flatMap { try? JSONDecoder().decode(SavedShelves.self, from: $0) } }
+    func save(_ shelves: SavedShelves) { saved = try? JSONEncoder().encode(shelves) }
+}
