@@ -14,9 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let newShelfMenuItem = NSMenuItem(title: "New Shelf", action: #selector(newShelf), keyEquivalent: "")
     private var shakeMonitor: ShakeMonitor?
 
-    // Finder files for now. Once Captured Items (#5) land, accept their pasteboard types here and read
-    // the drop with their reader in `openShelf(holding:)`, so text, links and images work too.
-    private static let menuBarDropTypes: [NSPasteboard.PasteboardType] = [.fileURL]
+    // The menu bar icon accepts whatever a Shelf accepts: Finder files, text, links, rich text and images.
+    private static let menuBarDropTypes = PasteboardContent.readableTypes
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = makeStatusItem()
@@ -40,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = item.button {
             button.image = NSImage(systemSymbolName: "tray.2", accessibilityDescription: "box4dd")
             _ = MenuBarDropTarget(on: button, types: Self.menuBarDropTypes,
-                                  canDrop: { [weak self] in self?.droppedFiles(in: $0).isEmpty == false },
+                                  canDrop: { !PasteboardContent.read(from: $0).isEmpty },
                                   drop: { [weak self] in self?.openShelf(holding: $0) ?? false })
         }
 
@@ -80,15 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Something was dropped on the menu bar icon: open a new Shelf just below it, holding what was dropped.
     private func openShelf(holding pasteboard: NSPasteboard) -> Bool {
-        let urls = droppedFiles(in: pasteboard)
-        guard !urls.isEmpty else { return false }
+        let contents = PasteboardContent.read(from: pasteboard)
+        guard !contents.isEmpty else { return false }
         let id = windows.openShelf(at: pointBelowIcon)
-        return windows.drop(urls, on: id)
-    }
-
-    private func droppedFiles(in pasteboard: NSPasteboard) -> [URL] {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        return pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+        return windows.add(contents, to: id)
     }
 
     // A Shelf centred here is pushed down onto the screen, so it opens right under the icon.

@@ -206,5 +206,5 @@ Dropping on the menu bar icon
 - [ ] Drag 3 Finder files onto the menu bar icon: it highlights while hovering; drop: a new Shelf opens just below the icon holding "3 items", and the originals are untouched
 - [ ] Drop on the icon again: another new Shelf opens (each drop opens its own Shelf)
 - [ ] Drag Items out of a Shelf onto the icon: they move to a new Shelf, and the first Shelf closes if emptied
-- [ ] Drag selected text onto the icon: it's refused (no highlight, nothing opens) — text, links and images come with Captured Items (#5)
+- [ ] Drag selected text, a browser link, and a browser image onto the icon, one at a time: each opens a new Shelf holding a Captured Item
 - [ ] After all this, clicking the icon still opens the menu
