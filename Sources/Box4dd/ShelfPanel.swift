@@ -35,6 +35,10 @@ final class ShelfPanel: NSPanel, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         windows?.panelClosed(shelfID)
     }
+
+    func windowDidMove(_ notification: Notification) {
+        windows?.panelMoved(shelfID, to: frame.origin)
+    }
 }
 
 /// Watches whether a drag is hovering over a Shelf, so the view can highlight it.
@@ -198,9 +202,10 @@ struct ShelfContent: View {
     }
 
     private func label(for items: [Item]) -> String {
-        if items.count == 1, let url = windows.url(for: items[0]) {
-            return url.lastPathComponent
+        let missing = items.count { $0.isMissing }
+        if items.count == 1 {
+            return windows.name(for: items[0]) + (missing > 0 ? " (missing)" : "")
         }
-        return "\(items.count) items"
+        return "\(items.count) items" + (missing > 0 ? ", \(missing) missing" : "")
     }
 }
