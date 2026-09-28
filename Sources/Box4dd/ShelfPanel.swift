@@ -25,7 +25,10 @@ final class ShelfPanel: NSPanel, NSWindowDelegate {
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isReleasedWhenClosed = false
-        isMovableByWindowBackground = true
+        // Off: with movable-by-background on, the window server drags the window itself from any area its
+        // views don't claim, SwiftUI's included, before a press can start a drag of the Items. ShelfItemsView
+        // moves the Shelf instead, from its top strip.
+        isMovableByWindowBackground = false
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
         level = .floating
@@ -235,18 +238,19 @@ final class ShelfItemsView: NSView, NSDraggingSource {
     }
 
     // On the Stack, clicks land here, not in the SwiftUI content, so a drag of the Items can start anywhere
-    // on the Shelf; the expanded list handles its own clicks. The top strip is left to the window for moving
-    // it and for the close and collapse buttons.
+    // on the Shelf; the expanded list handles its own clicks. Clicks in the top strip land here too, to move
+    // the Shelf; the close and collapse buttons sit above this view and still get their own clicks.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard frame.contains(point) else { return nil }
-        let local = convert(point, from: superview)
-        if local.y > bounds.height - Self.titleStripHeight { return nil }
+        if isInTitleStrip(convert(point, from: superview)) { return self }
         return isExpanded ? super.hitTest(point) : self
     }
 
-    private static let titleStripHeight: CGFloat = 28
+    private func isInTitleStrip(_ point: NSPoint) -> Bool {
+        point.y > bounds.height - Self.titleStripHeight
+    }
 
-    override var mouseDownCanMoveWindow: Bool { items.isEmpty }
+    private static let titleStripHeight: CGFloat = 28
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -282,6 +286,11 @@ final class ShelfItemsView: NSView, NSDraggingSource {
     // MARK: Dragging out of the Shelf
 
     override func mouseDown(with event: NSEvent) {
+        // The top strip moves the Shelf, and so does anywhere on an empty Shelf, which has no Items to drag.
+        if isInTitleStrip(convert(event.locationInWindow, from: nil)) || items.isEmpty {
+            window?.performDrag(with: event)
+            return
+        }
         mouseDownEvent = event
     }
 
