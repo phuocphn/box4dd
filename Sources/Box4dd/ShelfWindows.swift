@@ -1,5 +1,7 @@
 import AppKit
+import ImageIO
 import ShelfCore
+import UniformTypeIdentifiers
 
 /// Keeps one floating panel per open Shelf, and passes what the user does in the panels to the Shelf rules.
 @MainActor
@@ -7,9 +9,20 @@ final class ShelfWindows {
     let shelves = Shelves(store: ShelfFile(), fileSystem: BookmarkFileSystem())
     private var panels: [Shelf.ID: ShelfPanel] = [:]
     private var originalsCheck: Timer?
+    /// Promised files are received here, off the main thread, and moved into storage as they arrive.
+    private let promiseQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.qualityOfService = .userInitiated
+        return queue
+    }()
+    /// For each file promise being received: its Shelf, and its Placeholders still waiting, in the order
+    /// the files are expected.
+    private var waitingPromises: [UUID: (shelf: Shelf.ID, placeholders: [Item.ID])] = [:]
 
     /// Brings back the Shelves that were open at quit, where they were, and starts watching their originals.
     func restoreOpenShelves() {
+        // Promises pending at quit died with it; the core already dropped their Placeholders.
+        CapturedFiles.clearIncoming()
         shelves.checkOriginals()
         for shelf in shelves.openShelves {
             showPanel(for: shelf)
@@ -53,27 +66,90 @@ final class ShelfWindows {
         return panel
     }
 
-    /// Puts what was dropped or pasted on a Shelf: Finder files as Reference Items, and anything else saved
-    /// to the app's storage as Captured Items. Returns false when nothing could be kept, so a drag source
-    /// sees the drop as refused.
+    /// Puts what was dropped or pasted on a Shelf: Finder files as Reference Items, anything else saved
+    /// to the app's storage as Captured Items, and promised files as Placeholders that become Captured Items
+    /// when the files arrive. Returns false when nothing could be kept, so a drag source sees the drop as refused.
     @discardableResult
     func add(_ contents: [PasteboardContent], to id: Shelf.ID) -> Bool {
-        let items: [Item.Content] = contents.compactMap { content in
-            if case .file(let url) = content {
+        var items: [Item.Content] = []
+        var promises: [(promise: UUID, placeholders: Range<Int>)] = []
+        // Every promise in one drag must be received into the same folder.
+        lazy var incoming = CapturedFiles.newIncomingFolder()
+        for content in contents {
+            switch content {
+            case .file(let url):
                 // A copied Captured Item pasted on a Shelf is still the app's own file, not a Finder file.
-                if let file = CapturedFiles.file(at: url) { return .captured(file: file) }
-                return (try? url.bookmarkData()).map { .reference(bookmark: $0) }
+                if let file = CapturedFiles.file(at: url) {
+                    items.append(.captured(file: file))
+                } else if let bookmark = try? url.bookmarkData() {
+                    items.append(.reference(bookmark: bookmark))
+                }
+            case .promise(let receiver):
+                let promise = UUID()
+                receive(receiver, into: incoming, as: promise)
+                // The names are known only once the promise is called in; a promise may hold several files.
+                let names: [String?] = receiver.fileNames.isEmpty ? [nil] : receiver.fileNames
+                promises.append((promise, items.count..<items.count + names.count))
+                items += names.map { .placeholder(name: $0) }
+            default:
+                if let file = CapturedFiles.save(content) { items.append(.captured(file: file)) }
             }
-            return CapturedFiles.save(content).map { .captured(file: $0) }
         }
         guard !items.isEmpty else { return false }
-        shelves.drop(items, on: id)
+        let dropped = shelves.drop(items, on: id)
+        for (promise, placeholders) in promises where dropped.count == items.count {
+            waitingPromises[promise] = (id, Array(dropped[placeholders]))
+        }
         return true
+    }
+
+    /// Calls in a promised file. The reader runs on `promiseQueue`, where the file is only sure to be
+    /// complete inside the block, so it's moved into storage there before the core hears of it.
+    private func receive(_ receiver: NSFilePromiseReceiver, into folder: URL, as promise: UUID) {
+        receiver.receivePromisedFiles(atDestination: folder, options: [:], operationQueue: promiseQueue) { @Sendable [weak self] url, error in
+            if let error { NSLog("box4dd: a promised file didn't arrive: \(error)") }
+            let file = error == nil ? CapturedFiles.take(url) : nil
+            Task { @MainActor in
+                guard let self else {
+                    if let file { CapturedFiles.delete(file) }
+                    return
+                }
+                self.promisedFile(file, arrivedFor: promise)
+            }
+        }
+    }
+
+    /// A promised file arrived in storage, or failed (nil). It fills the promise's next Placeholder; a file
+    /// beyond the Placeholders, from a promise that didn't name its files, is added next to them.
+    private func promisedFile(_ file: String?, arrivedFor promise: UUID) {
+        guard let waiting = waitingPromises[promise] else {
+            if let file { CapturedFiles.delete(file) }
+            return
+        }
+        guard let placeholder = waiting.placeholders.first else {
+            if let file, shelves.drop([.captured(file: file)], on: waiting.shelf).isEmpty {
+                CapturedFiles.delete(file)
+            }
+            return
+        }
+        waitingPromises[promise]?.placeholders.removeFirst()
+        if let file {
+            shelves.promisedFileArrived(placeholder, file: file)
+            return
+        }
+        guard case .placeholder(let name) = shelves.shelf(waiting.shelf)?.items.first(where: { $0.id == placeholder })?.content else { return }
+        shelves.promisedFileFailed(placeholder)
+        if let panel = panels[waiting.shelf], shelves.shelf(waiting.shelf) != nil {
+            panel.showNotice(name.map { "Couldn't get \($0)" } ?? "A promised file didn't arrive")
+        } else {
+            NSSound.beep()
+        }
+        closePanelsOfClosedShelves()
     }
 
     /// ⌘V on a Shelf.
     func paste(on id: Shelf.ID) -> Bool {
-        add(PasteboardContent.read(from: .general), to: id)
+        add(PasteboardContent.read(from: .general, takingPromises: false), to: id)
     }
 
     func items(on id: Shelf.ID) -> [Item] {
@@ -107,12 +183,15 @@ final class ShelfWindows {
         switch item.content {
         case .reference(let bookmark): item.isMissing ? nil : BookmarkFileSystem.resolve(bookmark)
         case .captured(let file): CapturedFiles.url(for: file)
+        case .placeholder: nil
         }
     }
 
-    /// The Item's name, which a Missing Item keeps from when it was dropped.
+    /// The Item's name, which a Missing Item keeps from when it was dropped, and a Placeholder has only if
+    /// its promise named its file.
     func name(for item: Item) -> String {
         if let file = item.capturedFile { return URL(filePath: file).lastPathComponent }
+        if case .placeholder(let name) = item.content { return name ?? "Arriving file" }
         return url(for: item)?.lastPathComponent ?? item.bookmark.flatMap(BookmarkFileSystem.savedName(in:)) ?? "Unknown item"
     }
 
@@ -121,14 +200,23 @@ final class ShelfWindows {
         guard let url = url(for: item) else {
             return NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: nil) ?? NSImage()
         }
-        if let file = item.capturedFile, url.pathExtension == "png" {
+        if let file = item.capturedFile, UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
             if let cached = thumbnails[file] { return cached }
-            if let image = NSImage(contentsOf: url) {
+            if let image = Self.thumbnail(of: url) {
                 thumbnails[file] = image
                 return image
             }
         }
         return NSWorkspace.shared.icon(forFile: url.path)
+    }
+
+    /// A small copy of an image, so a large photo isn't decoded in full just to show its icon.
+    private static func thumbnail(of url: URL) -> NSImage? {
+        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+                       kCGImageSourceThumbnailMaxPixelSize: 256] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        return NSImage(cgImage: image, size: .zero)
     }
 
     private var thumbnails: [String: NSImage] = [:]

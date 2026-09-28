@@ -81,7 +81,7 @@ Dropping content
 - [ ] Drag a link from a Safari page onto a Shelf: a `.webloc` Captured Item named after the page title (or the host)
 - [ ] Drag Safari's address bar URL onto a Shelf: a `.webloc` Captured Item
 - [ ] Select formatted text (bold, colors) in a TextEdit rich text document or a Safari page and drop it: a `.rtf` Captured Item; Quick Look (space in the list) shows the formatting
-- [ ] Drag an image from a Safari page onto a Shelf: one Captured Item "Image.png" showing a thumbnail of the image, not a link as well
+- [ ] Drag an image from a Safari page onto a Shelf: one Captured Item showing a thumbnail of the image, not a link as well (since #6, if Safari promises the file it arrives under its own name and format, e.g. `photo.jpg`, instead of "Image.png")
 - [ ] Same in Chrome (known risk: Chrome may only offer the image's address, giving a `.webloc`; note what happens)
 - [ ] Take a screenshot with ⌘⇧4, then drag its floating thumbnail onto a Shelf: it's added (as a Reference Item to the screenshot file, or a Captured image)
 - [ ] Drag 2 Finder files onto a Shelf: they are Reference Items as before (no files in `Captured`), and a Missing Item still shows "(missing)" when its original is trashed
@@ -116,6 +116,52 @@ File lifecycle
 - [ ] Quit and relaunch: open and Recent Shelves still show their Captured Items with their names and thumbnails
 - [ ] Put two text Captured Items, an image Captured Item and a Finder file on a Shelf, remove one text Item with ⌫, close the Shelf, then close 10 more Shelves that each hold an Item: the first Shelf leaves Recent Shelves, all three of its `Captured/<id>` folders are deleted (the ⌫ one too), and the Finder file's original is untouched
 - [ ] Items dragged to another Shelf before the first Shelf fell off Recent Shelves still work on the second Shelf
+
+## Slice 5: File promises (#6)
+
+Promised files are written to `~/Library/Application Support/box4dd/Incoming/<drop id>/` while they arrive, then moved to `Captured/<id>/<name>`. Watch both folders in Finder. `log stream --predicate 'process == "Box4dd"'` shows "a promised file didn't arrive" errors.
+
+Mail
+- [ ] Drag a PDF attachment from a Mail message onto a Shelf: a Placeholder with a spinner and the attachment's name shows at once, then turns into a Captured Item with the PDF's icon and the same name; the file is in `Captured/<id>/`, not in Mail's folders
+- [ ] Drag an image attachment from Mail: it becomes a Captured Item with a thumbnail, not a link or a preview-sized image
+- [ ] Select 2 attachments in one message and drag them together: 2 Placeholders, then 2 Captured Items, in order
+- [ ] Drag a whole message from Mail's message list onto a Shelf: note what arrives (expected: a `.eml` Captured Item, or a link)
+
+Photos
+- [ ] Drag one photo from Photos onto a Shelf: a Placeholder, then a Captured Item holding the image file (`.heic` or `.jpeg`) with a thumbnail
+- [ ] Drag 3 photos at once: 3 Placeholders, then 3 Captured Items; "3 items" in the Stack
+- [ ] Drag a photo that's only in iCloud (Optimize Mac Storage on): the Placeholder spins while it downloads, then becomes the image
+- [ ] Drag a video from Photos (a slow, large promise): the Placeholder stays with its spinner for the whole export, and meanwhile other Items can be dropped on the Shelf and dragged out
+- [ ] Drop a photo on the menu bar icon: a new Shelf opens with the Placeholder, which becomes the image
+
+Browsers
+- [ ] Drag an image from Safari and from Chrome onto a Shelf: a Captured image file (promised or saved as PNG), never only a `.webloc`
+- [ ] Drag a "download linked file" style item (e.g. a file link or a download from Safari's Downloads popover) onto a Shelf: it arrives as a Captured Item holding the file, or is refused; note which
+
+Nothing else changed
+- [ ] Drag 2 Finder files onto a Shelf: 2 Reference Items at once (no Placeholder, nothing in `Incoming` or `Captured`)
+- [ ] Drag selected text from TextEdit and a link from Safari: still a `.txt` and a `.webloc` Captured Item, no Placeholder
+- [ ] ⌘V with a copied Mail attachment or photo on the clipboard: whatever is added arrives straight away (the clipboard never makes Placeholders)
+- [ ] Drag a text Captured Item from one Shelf onto another: it arrives on the second Shelf (possibly after a brief Placeholder) as a `.txt` with the same name, and leaves the first
+
+While a Placeholder is pending
+- [ ] Drag the Stack out to a folder while a Placeholder is pending: only the ready Items go, and the Placeholder stays on the Shelf
+- [ ] In the list, a Placeholder row can't be dragged, ⌘C with only it selected copies nothing, and space shows no preview
+- [ ] Select a pending Placeholder and press ⌫: it leaves the Shelf; when the file arrives it doesn't come back, and its folder is gone from `Captured`
+- [ ] Close the Shelf while a Placeholder is pending: Recent Shelves lists it without the Placeholder (or doesn't list it if the Placeholder was all it held); when the file arrives it's deleted, not left in `Captured`
+
+Failure and cancellation
+- [ ] Start dragging a large video from Photos to a Shelf, then cancel the export in Photos (if it offers one): the Placeholder goes away, with a short "Couldn't get …" message at the bottom of the Shelf that fades after a few seconds; no dialog
+- [ ] A failed Placeholder on a Shelf that held nothing else: the Shelf closes (with a beep) and doesn't appear in Recent Shelves
+- [ ] Press Esc during a Mail or Photos drag before dropping: nothing is added, no Placeholder, nothing in `Incoming`
+
+Quitting while a promise is pending
+- [ ] Start a slow Photos drop (a video), quit box4dd from the menu before it finishes, relaunch: the Shelf comes back with its other Items and no Placeholder (a Shelf that held only the Placeholder doesn't come back), and `Incoming` is empty
+
+Dragging out
+- [ ] Drag a Captured Item that came from Mail to a Finder folder: a copy of the file appears under its name, and the Item leaves the Shelf, like any Captured Item
+- [ ] Drag a Captured photo into a Mail compose window or a TextEdit rich text document: the image is inserted
+- [ ] Captured Items from promises survive a relaunch with their names and thumbnails, and their `Captured/<id>` folders are deleted when their Shelf falls off Recent Shelves
 
 ## Slice 6: Stack and Item actions (#7)
 

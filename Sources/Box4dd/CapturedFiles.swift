@@ -11,7 +11,7 @@ enum CapturedFiles {
     static func save(_ content: PasteboardContent) -> String? {
         let saved: (name: String, ext: String, data: Data)?
         switch content {
-        case .file:
+        case .file, .promise:
             saved = nil
         case .text(let text):
             saved = (name(from: text, or: "Text"), "txt", Data(text.utf8))
@@ -34,6 +34,35 @@ enum CapturedFiles {
             return file
         } catch {
             NSLog("box4dd: couldn't save a Captured Item to \(url.path): \(error)")
+            return nil
+        }
+    }
+
+    /// Where promised files are written while they arrive, before they're moved into storage. Whatever is
+    /// left there belonged to promises that never finished, so it's cleared at launch.
+    static let incoming = URL.applicationSupportDirectory.appending(path: "box4dd/Incoming", directoryHint: .isDirectory)
+
+    /// A new, empty folder in `incoming` for the files promised in one drop.
+    static func newIncomingFolder() -> URL {
+        let folder = incoming.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    static func clearIncoming() {
+        try? FileManager.default.removeItem(at: incoming)
+    }
+
+    /// Moves a promised file that has arrived into storage under its own name, and returns its path there.
+    static func take(_ url: URL) -> String? {
+        let file = "\(UUID().uuidString)/\(url.lastPathComponent)"
+        let destination = directory.appending(path: file)
+        do {
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: url, to: destination)
+            return file
+        } catch {
+            NSLog("box4dd: couldn't keep the promised file \(url.path): \(error)")
             return nil
         }
     }
