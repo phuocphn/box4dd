@@ -12,7 +12,7 @@ Each slice adds its own section. Run all sections before closing a slice.
 
 - [ ] The app shows only a menu bar icon: no Dock icon, and it's not in ⌘Tab
 - [ ] Menu bar icon → Quit box4dd quits the app
-- [ ] ⌃⌥Space opens an empty Shelf under the cursor ("Drop files here")
+- [ ] ⌃⌥Space opens an empty Shelf under the cursor ("Drop or paste here")
 - [ ] ⌃⌥Space again opens a second Shelf; both stay open
 - [ ] Menu bar icon → New Shelf opens a Shelf too
 - [ ] With TextEdit in front and typing, ⌃⌥Space opens a Shelf and TextEdit keeps focus (you can keep typing)
@@ -38,7 +38,7 @@ Start from a fresh install with no permissions granted to box4dd (System Setting
 - [ ] On first launch no permission prompt appears, and box4dd is not added to Accessibility or Input Monitoring
 - [ ] Drag 3 Finder files and Shake left-right quickly: a new Shelf opens under the cursor while the drag is still going
 - [ ] Without letting go, drop the files on that Shelf: it shows "3 items"
-- [ ] Shake while dragging selected text in Safari or TextEdit: a Shelf opens (it may refuse the text until Captured Items land)
+- [ ] Shake while dragging selected text in Safari or TextEdit: a Shelf opens, and dropping the text on it adds a Captured Item
 - [ ] Shake while dragging an Item out of a Shelf: another Shelf opens, and the Items can be dropped on it
 - [ ] Keep shaking for 2 seconds without stopping: only one Shelf opens
 - [ ] Shake, pause for a second, Shake again in the same drag: a second Shelf opens
@@ -72,6 +72,51 @@ Saved state lives in `~/Library/Application Support/box4dd/shelves.json`. Delete
 - [ ] A Recent Shelf whose original was deleted reopens with that Item marked missing
 - [ ] Put a Shelf on a second display, quit, disconnect the display, relaunch: the Shelf reopens on the remaining screen
 
+## Slice 4: Captured Items (#5)
+
+Captured Item files live in `~/Library/Application Support/box4dd/Captured/<id>/<name>`. Open that folder in Finder to watch it.
+
+Dropping content
+- [ ] Select a sentence in TextEdit (plain text document) and drag it onto a Shelf: a Captured Item named after its first words appears, with a text file icon; a `.txt` file appears in `Captured`
+- [ ] Drag a link from a Safari page onto a Shelf: a `.webloc` Captured Item named after the page title (or the host)
+- [ ] Drag Safari's address bar URL onto a Shelf: a `.webloc` Captured Item
+- [ ] Select formatted text (bold, colors) in a TextEdit rich text document or a Safari page and drop it: a `.rtf` Captured Item; Quick Look (space in the list) shows the formatting
+- [ ] Drag an image from a Safari page onto a Shelf: one Captured Item "Image.png" showing a thumbnail of the image, not a link as well
+- [ ] Same in Chrome (known risk: Chrome may only offer the image's address, giving a `.webloc`; note what happens)
+- [ ] Take a screenshot with ⌘⇧4, then drag its floating thumbnail onto a Shelf: it's added (as a Reference Item to the screenshot file, or a Captured image)
+- [ ] Drag 2 Finder files onto a Shelf: they are Reference Items as before (no files in `Captured`), and a Missing Item still shows "(missing)" when its original is trashed
+- [ ] One Shelf holding Finder files, text, a link and an image shows them all in the Stack and the list, in the order they were dropped
+
+Pasting with ⌘V
+- [ ] ⌃⌥Space opens an empty Shelf; typing still goes to TextEdit. Click the empty Shelf, then ⌘V with text on the clipboard: a Captured text Item appears
+- [ ] Copy a URL in Safari's address bar, click a Shelf, ⌘V: a `.webloc` Captured Item
+- [ ] Copy formatted text in TextEdit, ⌘V on a Shelf: a `.rtf` Captured Item that keeps the formatting
+- [ ] Copy a screenshot to the clipboard (⌘⌃⇧4), ⌘V on a Shelf: an "Image.png" Captured Item
+- [ ] Copy 2 files in Finder (⌘C), ⌘V on a Shelf: 2 Reference Items, and no new files in `Captured`
+- [ ] ⌘V on a Shelf with the list expanded adds to it; with the Stack collapsed (after Esc) too
+- [ ] ⌘V with an empty clipboard beeps and adds nothing
+- [ ] ⌘V while TextEdit has the keys pastes into TextEdit, not onto the Shelf
+
+Dragging out
+- [ ] Drag a text Captured Item into a TextEdit document and into Safari's search field: the text is inserted (not a file or a path)
+- [ ] Drag a link Captured Item into Safari's address bar: the URL is filled in
+- [ ] Drag a rich text Captured Item into a TextEdit rich text document: the formatting is kept
+- [ ] Drag an image Captured Item into a TextEdit rich text document or Mail message: the image is inserted
+- [ ] Drag each kind to a Finder folder: a `.txt`, `.webloc`, `.rtf` or `.png` file with the Item's name appears there, and the file in `Captured` is still there (copied, not moved)
+- [ ] Double-click the delivered `.webloc`: the page opens in the browser
+- [ ] Each accepted drag-out takes the Item off the Shelf, as for Finder files
+- [ ] Drag a Stack holding a Finder file and a text Captured Item to a folder on the same volume: the Finder file is moved and the text arrives as a new `.txt` file
+- [ ] Drag a Captured Item from one Shelf onto another: it lands on the second Shelf and leaves the first
+- [ ] Select a Captured Item, ⌘C, then ⌘V in TextEdit: the text goes in; ⌘V in a Finder window: a copy of the file appears
+- [ ] Right-click a Captured Item → Show in Finder is disabled (it lives in app storage); a Stack of only Captured Items has no Show in Finder menu
+
+File lifecycle
+- [ ] Remove a Captured Item with ⌫ while other Items stay: its file stays in `Captured`
+- [ ] Drag out the last Captured Item to a text field: the Shelf goes to Recent Shelves; reopening it shows the Item, and dragging it out again still works
+- [ ] Quit and relaunch: open and Recent Shelves still show their Captured Items with their names and thumbnails
+- [ ] Put two text Captured Items, an image Captured Item and a Finder file on a Shelf, remove one text Item with ⌫, close the Shelf, then close 10 more Shelves that each hold an Item: the first Shelf leaves Recent Shelves, all three of its `Captured/<id>` folders are deleted (the ⌫ one too), and the Finder file's original is untouched
+- [ ] Items dragged to another Shelf before the first Shelf fell off Recent Shelves still work on the second Shelf
+
 ## Slice 6: Stack and Item actions (#7)
 
 Setup: TextEdit in front with the cursor in a document; a Shelf holding 4 Finder files (make copies in a scratch folder first).
@@ -81,7 +126,7 @@ Stack and expanding
 - [ ] Click the Stack: the Shelf grows downwards into a list of the 4 Items, top edge unchanged, with a collapse button at the top right
 - [ ] A slightly shaky click still expands (doesn't start a drag)
 - [ ] The collapse button returns to the Stack; so does Esc while the list has the keys
-- [ ] Clicking an empty Shelf does nothing (no empty list)
+- [ ] Clicking an empty Shelf shows no empty list (since #5 it takes the keys, for ⌘V)
 
 Focus
 - [ ] ⌃⌥Space while typing in TextEdit: TextEdit keeps the keys (opening never takes them)

@@ -56,9 +56,14 @@ final class ItemList: NSTableView, NSTableViewDataSource, NSTableViewDelegate, @
         selectedRowIndexes.filter { $0 < rows.count }.map { rows[$0] }
     }
 
-    /// The originals of the selected Items that can still be found.
+    /// The files of the selected Items that can still be found: originals, and Captured Items' own files.
     private var selectedURLs: [URL] {
         selectedItems.compactMap { windows?.url(for: $0) }
+    }
+
+    /// The originals of the selected Reference Items; a Captured Item's file lives in the app's storage.
+    private var selectedOriginals: [URL] {
+        selectedItems.filter { $0.bookmark != nil }.compactMap { windows?.url(for: $0) }
     }
 
     // MARK: Rows
@@ -66,8 +71,9 @@ final class ItemList: NSTableView, NSTableViewDataSource, NSTableViewDelegate, @
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let url = windows?.url(for: rows[row])
-        return PassthroughHostingView(rootView: ItemRow(url: url))
+        let item = rows[row]
+        return PassthroughHostingView(rootView: ItemRow(icon: windows?.icon(for: item) ?? NSImage(),
+                                                        name: windows?.name(for: item) ?? "Unknown item"))
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
@@ -120,7 +126,7 @@ final class ItemList: NSTableView, NSTableViewDataSource, NSTableViewDelegate, @
         let menu = NSMenu()
         let showInFinder = NSMenuItem(title: "Show in Finder", action: #selector(showSelectionInFinder), keyEquivalent: "")
         showInFinder.target = self
-        showInFinder.isEnabled = !selectedURLs.isEmpty
+        showInFinder.isEnabled = !selectedOriginals.isEmpty
         menu.autoenablesItems = false
         menu.addItem(showInFinder)
         return menu
@@ -136,15 +142,16 @@ final class ItemList: NSTableView, NSTableViewDataSource, NSTableViewDelegate, @
     }
 
     /// Puts the selected Items' files on the clipboard, the way Finder's Copy does, so they paste in Finder.
+    /// Captured Items also put their text, link, rich text or image there.
     private func copySelection() {
-        let urls = selectedURLs
-        guard !urls.isEmpty else { return }
+        let writers = selectedItems.compactMap { windows?.clipboardWriter(for: $0) }
+        guard !writers.isEmpty else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects(urls as [NSURL])
+        NSPasteboard.general.writeObjects(writers)
     }
 
     @objc private func showSelectionInFinder() {
-        let urls = selectedURLs
+        let urls = selectedOriginals
         guard !urls.isEmpty else { return }
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
@@ -196,7 +203,7 @@ final class ItemList: NSTableView, NSTableViewDataSource, NSTableViewDelegate, @
     // MARK: Dragging out a selection
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        windows?.url(for: rows[row]).map { $0 as NSURL }
+        windows?.dragWriter(for: rows[row])
     }
 
     func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
@@ -214,15 +221,16 @@ final class ItemList: NSTableView, NSTableViewDataSource, NSTableViewDelegate, @
 
 /// One Item in the expanded Shelf.
 struct ItemRow: View {
-    let url: URL?
+    let icon: NSImage
+    let name: String
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(nsImage: url.map { NSWorkspace.shared.icon(forFile: $0.path) }
-                  ?? NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: nil) ?? NSImage())
+            Image(nsImage: icon)
                 .resizable()
+                .aspectRatio(contentMode: .fit)
                 .frame(width: 20, height: 20)
-            Text(url?.lastPathComponent ?? "Unknown item")
+            Text(name)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)

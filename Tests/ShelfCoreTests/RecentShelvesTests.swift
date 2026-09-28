@@ -204,23 +204,6 @@ struct RecentShelvesTests {
     }
 }
 
-/// Answers for each bookmark what happened to its original; anything not listed is still in place.
-@MainActor
-private final class TestFileSystem: FileSystem {
-    var originals: [Data: Original] = [:]
-
-    func original(of bookmark: Data) -> Original { originals[bookmark] ?? .present }
-}
-
-/// Keeps what the Shelves save in memory, standing in for the file on disk across a relaunch.
-@MainActor
-private final class MemoryStore: ShelfStore {
-    private var saved: SavedShelves?
-
-    func load() -> SavedShelves? { saved }
-    func save(_ shelves: SavedShelves) { saved = shelves }
-}
-
 /// Opens a Shelf holding one Reference Item, so closing it keeps it in Recent Shelves.
 @MainActor
 private func shelfWithItem(on shelves: Shelves) -> Shelf.ID {
