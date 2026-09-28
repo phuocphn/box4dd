@@ -4,16 +4,51 @@ import ShelfCore
 /// Keeps one floating panel per open Shelf, and passes what the user does in the panels to the Shelf rules.
 @MainActor
 final class ShelfWindows {
-    let shelves = Shelves()
+    let shelves = Shelves(store: ShelfFile(), fileSystem: BookmarkFileSystem())
     private var panels: [Shelf.ID: ShelfPanel] = [:]
+    private var originalsCheck: Timer?
+
+    /// Brings back the Shelves that were open at quit, where they were, and starts watching their originals.
+    func restoreOpenShelves() {
+        shelves.checkOriginals()
+        for shelf in shelves.openShelves {
+            showPanel(for: shelf)
+        }
+        // Renames, moves and deletions in Finder happen outside the app, so look for them every few seconds.
+        originalsCheck = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.shelves.checkOriginals() }
+        }
+    }
 
     /// Opens a new Shelf centred on a point in screen coordinates (usually the cursor).
     func openShelf(at point: NSPoint) {
         let id = shelves.openShelf()
+        let panel = showPanel(for: id) { self.origin(centering: $0, on: point) }
+        panelMoved(id, to: panel.frame.origin)
+    }
+
+    /// Reopens a Recent Shelf where it was when it closed.
+    func reopen(_ id: Shelf.ID) {
+        shelves.reopen(id)
+        shelves.checkOriginals()
+        if let shelf = shelves.shelf(id) { showPanel(for: shelf) }
+    }
+
+    /// Shows a Shelf at its saved position, moved onto a screen if that spot is no longer on one.
+    private func showPanel(for shelf: Shelf) {
+        showPanel(for: shelf.id) { size in
+            let center = NSPoint(x: shelf.position.x + size.width / 2, y: shelf.position.y + size.height / 2)
+            return self.origin(centering: size, on: center)
+        }
+    }
+
+    @discardableResult
+    private func showPanel(for id: Shelf.ID, placedAt place: (NSSize) -> NSPoint) -> ShelfPanel {
         let panel = ShelfPanel(shelfID: id, windows: self)
         panels[id] = panel
-        panel.setFrameOrigin(origin(centering: panel.frame.size, on: point))
+        panel.setFrameOrigin(place(panel.frame.size))
         panel.orderFrontRegardless()
+        return panel
     }
 
     /// Returns false when none of the files could be kept, so the drag source sees the drop as refused.
@@ -44,10 +79,19 @@ final class ShelfWindows {
         shelves.close(id)
     }
 
-    /// The original file for a Reference Item, if it still exists.
+    /// The user moved a Shelf's panel; the position is its frame origin in screen coordinates.
+    func panelMoved(_ id: Shelf.ID, to origin: NSPoint) {
+        shelves.shelfMoved(id, to: ShelfPosition(x: origin.x, y: origin.y))
+    }
+
+    /// The original file for a Reference Item, or nil for a Missing Item, which is also left out of drags.
     func url(for item: Item) -> URL? {
-        var isStale = false
-        return try? URL(resolvingBookmarkData: item.bookmark, options: .withoutUI, bookmarkDataIsStale: &isStale)
+        item.isMissing ? nil : BookmarkFileSystem.resolve(item.bookmark)
+    }
+
+    /// The Item's name, which a Missing Item keeps from when it was dropped.
+    func name(for item: Item) -> String {
+        url(for: item)?.lastPathComponent ?? BookmarkFileSystem.savedName(in: item.bookmark) ?? "Unknown item"
     }
 
     private func closePanelsOfClosedShelves() {
