@@ -6,11 +6,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let windows = ShelfWindows()
     private var statusItem: NSStatusItem?
     private var newShelfHotKey: HotKey?
+    private var shakeMonitor: ShakeMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = makeStatusItem()
         newShelfHotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey)) { [windows] in
             windows.openShelf(at: NSEvent.mouseLocation)
+        }
+        shakeMonitor = ShakeMonitor { [windows] point in
+            windows.openShelf(at: point)
         }
     }
 
