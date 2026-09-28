@@ -19,7 +19,7 @@ Each slice adds its own section. Run all sections before closing a slice.
 - [ ] The Shelf stays above TextEdit when you click TextEdit
 - [ ] Switch Space (⌃→): the Shelf is still visible
 - [ ] Put Safari in full screen: ⌃⌥Space opens a Shelf over it
-- [ ] Dragging the Shelf's top strip moves it (empty Shelves also move by dragging anywhere)
+- [ ] Dragging the Shelf's top strip moves it (an empty Shelf also moves by dragging anywhere); with Items, dragging below the strip drags the Items, never the Shelf
 - [ ] Drag 3 Finder files onto a Shelf: it highlights while hovering, then shows a pile of icons and "3 items"
 - [ ] No files are copied: the originals are still where they were, and there are no new files anywhere
 - [ ] Drag the Items from the Shelf to the Desktop (same volume): the files **move** there, and the Shelf closes because it's empty
