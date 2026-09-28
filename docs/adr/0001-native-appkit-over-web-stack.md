@@ -1,0 +1,3 @@
+# Native Swift with AppKit, not a web stack or pure SwiftUI
+
+box4dd is a native Swift app. AppKit handles the system plumbing and SwiftUI draws only the contents of a Shelf. Almost everything hard in this app is AppKit territory: floating panels that don't take focus, watching the pointer during another app's drag for the Shake, receiving and giving out file promises, bookmarks that follow moved files, and the menu bar icon as a drop target. We chose this over Electron/Tauri, which would need native code for all of that anyway, and over pure SwiftUI, which would keep dropping into AppKit less cleanly. Because this is a personal tool, the minimum is macOS 26, so we can use the newest APIs without compatibility code.
