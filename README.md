@@ -1,14 +1,20 @@
-# box4dd
+<p align="center">
+  <img src="docs/assets/logo.svg" width="128" height="128" alt="box4dd logo: a floating Shelf holding a stack of Items, with motion lines for the Shake">
+</p>
 
-**A temporary place to put things while you drag and drop on macOS.**
+<h1 align="center">box4dd</h1>
+
+<p align="center"><strong>A temporary place to put things while you drag and drop on macOS.</strong></p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-26%2B-black?logo=apple" alt="macOS 26+">
+  <img src="https://img.shields.io/badge/Swift-6-orange?logo=swift" alt="Swift 6">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
+</p>
 
 On a Mac, drag-and-drop only works when the thing you're dragging and the place it's going are both visible at once. box4dd gives you somewhere to put things in between. Shake the pointer while dragging and a small floating **Shelf** appears under the cursor. Drop files, text, links or images on it, go wherever you need to, then drag everything out together.
 
 box4dd is a free, open-source app inspired by [Dropover](https://dropoverapp.com/). It is not affiliated with Dropover.
-
-![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black?logo=apple)
-![Swift 6](https://img.shields.io/badge/Swift-6-orange?logo=swift)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
 > **Status:** v1 is feature-complete and has 54 automated tests. Some parts have only been checked by hand so far, not by automated tests; see [Known limitations](#known-limitations). Bug reports are very welcome.
 
